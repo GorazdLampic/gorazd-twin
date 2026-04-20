@@ -1164,15 +1164,26 @@ let accumulatedTranscript = '';
 let internalTranscript = '';
 let restartTimer = null;
 
-// Detect if running inside Capacitor native app
-const isNativeApp = typeof Capacitor !== 'undefined' && Capacitor.isNativePlatform && Capacitor.isNativePlatform();
+// Detect if running inside Capacitor native app — check lazily since Capacitor may init late
+let isNativeApp = false;
 let SpeechPlugin = null;
-if (isNativeApp && Capacitor.Plugins && Capacitor.Plugins.SpeechRecognition) {
-    SpeechPlugin = Capacitor.Plugins.SpeechRecognition;
+
+function detectCapacitor() {
+    if (SpeechPlugin) return; // already detected
+    try {
+        isNativeApp = typeof Capacitor !== 'undefined' && Capacitor.isNativePlatform && Capacitor.isNativePlatform();
+        if (isNativeApp && Capacitor.Plugins) {
+            SpeechPlugin = Capacitor.Plugins.SpeechRecognition || null;
+        }
+    } catch(e) {}
 }
+// Try on load and also after a delay
+detectCapacitor();
+setTimeout(detectCapacitor, 1000);
 
 async function toggleMic() {
     const btn = document.getElementById('micBtn');
+    detectCapacitor(); // ensure we detect native platform
 
     if (ttsPlaying) {
         addMessage('system', 'Wait for the response to finish speaking.');
