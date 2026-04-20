@@ -535,7 +535,7 @@ async function startInterview() {
 
 async function sendDevelop() {
     const input = document.getElementById('input');
-    const text = input.value.trim() || internalTranscript.trim();
+    const text = input.value.trim();
     if (!text || !authToken) return;
 
     stopAudioRecording();
@@ -589,7 +589,7 @@ let knowledgeBaseText = localStorage.getItem('dt_knowledge_base') || '';
 
 async function sendLive() {
     const input = document.getElementById('input');
-    const text = input.value.trim() || internalTranscript.trim();
+    const text = input.value.trim();
     if (!text || !authToken) return;
 
     // Save voice recording
@@ -1161,228 +1161,138 @@ let accumulatedTranscript = '';
 let internalTranscript = '';
 let restartTimer = null;
 
-// Detect if running inside Capacitor native app — check lazily since Capacitor may init late
+// ═══════════════════════════════════════════
+//  SPEECH INPUT — Simple, reliable approach
+//  Uses Capacitor plugin → Web Speech API → keyboard dictation (always works)
+//  Text always shown in input field (visible, editable)
+// ═══════════════════════════════════════════
 let isNativeApp = false;
 let SpeechPlugin = null;
-
-function detectCapacitor() {
-    if (SpeechPlugin) return; // already detected
+try {
+    isNativeApp = typeof Capacitor !== 'undefined' && Capacitor.isNativePlatform && Capacitor.isNativePlatform();
+    if (isNativeApp) SpeechPlugin = Capacitor.Plugins?.SpeechRecognition || null;
+} catch(e) {}
+setTimeout(() => {
     try {
         isNativeApp = typeof Capacitor !== 'undefined' && Capacitor.isNativePlatform && Capacitor.isNativePlatform();
-        if (isNativeApp && Capacitor.Plugins) {
-            SpeechPlugin = Capacitor.Plugins.SpeechRecognition || null;
-        }
+        if (isNativeApp && !SpeechPlugin) SpeechPlugin = Capacitor.Plugins?.SpeechRecognition || null;
     } catch(e) {}
-}
-// Try on load and also after a delay
-detectCapacitor();
-setTimeout(detectCapacitor, 1000);
+}, 1000);
 
 async function toggleMic() {
     const btn = document.getElementById('micBtn');
-    detectCapacitor(); // ensure we detect native platform
-
-    // If ttsPlaying got stuck, force reset it
-    if (ttsPlaying) {
-        resetTTS();
-    }
+    if (ttsPlaying) { resetTTS(); }
 
     micOn = !micOn;
 
     if (micOn) {
-        accumulatedTranscript = '';
-        internalTranscript = '';
-
-        // Try native Capacitor plugin first, then Web Speech API, then getUserMedia
-        let started = false;
-
-        if (isNativeApp && SpeechPlugin) {
-            try {
-                const perm = await SpeechPlugin.requestPermissions();
-                if (perm.speechRecognition === 'granted') {
-                    startNativeRecognition();
-                    started = true;
-                }
-            } catch (e) {
-                console.log('Native speech failed, trying fallback:', e);
-            }
-        }
-
-        if (!started && ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                audioStream = stream;
-                startWebRecognition();
-                started = true;
-            } catch (e) {
-                console.log('Web Speech failed:', e);
-            }
-        }
-
-        if (!started) {
-            micOn = false;
-            addMessage('system', 'Voice input not available. Please type your message instead.');
-            btn.style.background = '#333';
-            btn.style.color = '#e0e0e0';
-            return;
-        }
-
         btn.style.background = '#e74c3c';
         btn.style.color = 'white';
-        document.getElementById('input').placeholder = 'Listening...';
+        listenOnce(); // start one recognition session
     } else {
-        fullStopRecognition();
+        stopListening();
         btn.style.background = '#333';
         btn.style.color = '#e0e0e0';
-        document.getElementById('input').placeholder = mode === 'develop' ? 'Your answer...' : 'Ask Gorazd anything...';
     }
 }
 
-// ─── Native Capacitor speech recognition ───
-async function startNativeRecognition() {
-    if (ttsPlaying || !SpeechPlugin) return;
+// Single recognition session — gets result, puts it in the text field, stops
+async function listenOnce() {
+    const inputEl = document.getElementById('input');
+    inputEl.placeholder = 'Listening...';
 
-    try {
-        // Remove old listeners
-        await SpeechPlugin.removeAllListeners();
-
-        // Listen for partial results
-        SpeechPlugin.addListener('partialResults', (data) => {
-            if (ttsPlaying) return;
-            const text = data.matches && data.matches[0] ? data.matches[0] : '';
-            if (text) {
-                document.getElementById('micBtn').style.background = '#e74c3c';
-                document.getElementById('input').placeholder = text.substring(text.length - 60);
-                internalTranscript = (accumulatedTranscript + ' ' + text).trim();
-            }
-        });
-
-        // Listen for end/stop
-        SpeechPlugin.addListener('listeningState', (state) => {
-            if (state.status === 'stopped' && micOn && !ttsPlaying) {
-                // Save what we got and restart
-                if (internalTranscript) {
-                    accumulatedTranscript = internalTranscript;
-                }
-                // Auto-restart for continuous listening
-                setTimeout(() => {
-                    if (micOn && !ttsPlaying) startNativeRecognition();
-                }, 300);
-            }
-        });
-
-        await SpeechPlugin.start({
-            language: lang === 'sl' ? 'sl-SI' : 'en-US',
-            popup: false,
-            partialResults: true
-        });
-
-        isListening = true;
-    } catch (e) {
-        addMessage('system', 'Speech recognition error: ' + e.message);
-        isListening = false;
-    }
-}
-
-async function stopNativeRecognition() {
-    micOn = false;
-    isListening = false;
-    if (SpeechPlugin) {
-        try {
-            await SpeechPlugin.stop();
-            await SpeechPlugin.removeAllListeners();
-        } catch (e) {}
-    }
-}
-
-// ─── Web Speech API (browser fallback) ───
-function startWebRecognition() {
-    if (ttsPlaying) return;
-    if (recognition) { try { recognition.abort(); } catch(e) {} }
-    clearTimeout(restartTimer);
-
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    recognition = new SR();
-    recognition.lang = lang === 'sl' ? 'sl-SI' : 'en-US';
-    recognition.interimResults = true;
-    recognition.continuous = !(/Android|iPhone|iPad/i.test(navigator.userAgent));
-
-    recognition.onstart = () => { isListening = true; };
-
-    recognition.onresult = (e) => {
-        if (ttsPlaying) return;
-        clearTimeout(silenceTimer);
-        document.getElementById('micBtn').style.background = '#e74c3c';
-
-        let finalText = '';
-        let interimText = '';
-        for (let i = 0; i < e.results.length; i++) {
-            if (e.results[i].isFinal) finalText += e.results[i][0].transcript;
-            else interimText += e.results[i][0].transcript;
-        }
-
-        const preview = (finalText + interimText).trim();
-        if (preview) {
-            document.getElementById('input').placeholder = preview.substring(preview.length - 60);
-        }
-
-        if (finalText) {
-            accumulatedTranscript = (accumulatedTranscript + ' ' + finalText).trim();
-            internalTranscript = accumulatedTranscript;
-        }
-
-        if (e.results[e.results.length - 1].isFinal) {
-            silenceTimer = setTimeout(() => {
-                if (micOn && !ttsPlaying) {
-                    document.getElementById('micBtn').style.background = '#994422';
-                    document.getElementById('input').placeholder = internalTranscript
-                        ? 'Tap send when ready...' : 'Listening...';
-                }
-            }, SILENCE_TIMEOUT);
-        }
-    };
-
-    recognition.onend = () => {
-        isListening = false;
-        if (micOn && !ttsPlaying) {
-            restartTimer = setTimeout(() => {
-                if (micOn && !ttsPlaying) startWebRecognition();
-            }, 300);
-        }
-    };
-
-    recognition.onerror = (e) => {
-        if (e.error === 'no-speech' || e.error === 'aborted') return;
-        isListening = false;
-        if (micOn && !ttsPlaying) {
-            restartTimer = setTimeout(() => { if (micOn) startWebRecognition(); }, 1000);
-        }
-    };
-
-    try { recognition.start(); } catch (e) {}
-}
-
-function startRecognition() {
-    if (isNativeApp && SpeechPlugin) startNativeRecognition();
-    else startWebRecognition();
-}
-
-function fullStopRecognition() {
-    micOn = false;
-    clearTimeout(restartTimer);
-    clearTimeout(silenceTimer);
+    // Try Capacitor native plugin
     if (isNativeApp && SpeechPlugin) {
-        stopNativeRecognition();
-    } else {
-        if (recognition) { try { recognition.abort(); } catch(e) {} }
+        try {
+            const perm = await SpeechPlugin.requestPermissions();
+            if (perm.speechRecognition === 'granted') {
+                await SpeechPlugin.removeAllListeners();
+
+                SpeechPlugin.addListener('partialResults', (data) => {
+                    const text = data.matches?.[0] || '';
+                    if (text) inputEl.value = text; // SHOW in field
+                });
+
+                SpeechPlugin.addListener('listeningState', (state) => {
+                    if (state.status === 'stopped') {
+                        // Auto-restart if mic still on
+                        if (micOn && !ttsPlaying && inputEl.value.trim()) {
+                            // Got text — keep it, restart for more
+                            setTimeout(() => { if (micOn) listenOnce(); }, 500);
+                        } else if (micOn && !ttsPlaying) {
+                            setTimeout(() => { if (micOn) listenOnce(); }, 300);
+                        }
+                    }
+                });
+
+                await SpeechPlugin.start({
+                    language: lang === 'sl' ? 'sl-SI' : 'en-US',
+                    popup: false,
+                    partialResults: true
+                });
+                isListening = true;
+                return; // success
+            }
+        } catch(e) { console.log('Native speech error:', e); }
     }
-    isListening = false;
-    stopAudioRecording();
+
+    // Try Web Speech API
+    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+        try {
+            const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+            recognition = new SR();
+            recognition.lang = lang === 'sl' ? 'sl-SI' : 'en-US';
+            recognition.interimResults = true;
+            recognition.continuous = false; // single session, more reliable
+
+            recognition.onresult = (e) => {
+                let text = '';
+                for (let i = 0; i < e.results.length; i++) text += e.results[i][0].transcript;
+                if (text) inputEl.value = text; // SHOW in field
+            };
+
+            recognition.onend = () => {
+                isListening = false;
+                if (micOn && !ttsPlaying) {
+                    setTimeout(() => { if (micOn) listenOnce(); }, 500);
+                }
+            };
+
+            recognition.onerror = (e) => {
+                isListening = false;
+                if (e.error !== 'no-speech' && e.error !== 'aborted') {
+                    console.log('Web speech error:', e.error);
+                }
+                if (micOn && !ttsPlaying) {
+                    setTimeout(() => { if (micOn) listenOnce(); }, 1000);
+                }
+            };
+
+            recognition.start();
+            isListening = true;
+            return; // success
+        } catch(e) { console.log('Web speech error:', e); }
+    }
+
+    // Nothing worked — tell user to use keyboard
+    inputEl.placeholder = 'Type here or use keyboard mic button...';
+    inputEl.focus();
+    micOn = false;
+    document.getElementById('micBtn').style.background = '#333';
+    document.getElementById('micBtn').style.color = '#e0e0e0';
 }
 
-function stopRecognition() {
-    fullStopRecognition();
+function stopListening() {
+    micOn = false;
+    isListening = false;
+    if (SpeechPlugin) { try { SpeechPlugin.stop(); SpeechPlugin.removeAllListeners(); } catch(e) {} }
+    if (recognition) { try { recognition.abort(); } catch(e) {} }
+    document.getElementById('input').placeholder = mode === 'develop' ? 'Your answer...' : 'Ask Gorazd anything...';
 }
+// Aliases for backward compatibility with speakText
+function fullStopRecognition() { stopListening(); }
+function startRecognition() { if (micOn) listenOnce(); }
+function stopRecognition() { stopListening(); }
 
 // ═══════════════════════════════════════════
 //  AUDIO RECORDING & VOICE SYNC
