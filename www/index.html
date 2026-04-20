@@ -1,0 +1,1542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#00d4ff">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Gorazd Twin">
+<link rel="manifest" href="./manifest.json">
+<link rel="apple-touch-icon" href="./icons/icon-192.png">
+<title>Gorazd Lampic — Digital Twin</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    font-family: -apple-system, 'Segoe UI', Roboto, sans-serif;
+    background: #0a0a0a; color: #e0e0e0;
+    height: 100vh; display: flex; flex-direction: column;
+}
+
+/* ─── MODE BAR ─── */
+.mode-bar {
+    display: flex; align-items: center; background: #050505;
+    border-bottom: 1px solid #1a1a1a; padding: 0;
+}
+.mode-tab {
+    flex: 1; padding: 10px 0; text-align: center;
+    font-size: 13px; font-weight: 700; letter-spacing: 1px;
+    text-transform: uppercase; cursor: pointer;
+    border-bottom: 3px solid transparent; transition: all 0.2s;
+    color: #555; background: none; border-top: none; border-left: none; border-right: none;
+}
+.mode-tab:hover { color: #999; }
+.mode-tab.active[data-mode="develop"] {
+    color: #ff9500; border-bottom-color: #ff9500;
+}
+.mode-tab.active[data-mode="live"] {
+    color: #00d4ff; border-bottom-color: #00d4ff;
+}
+.qa-count {
+    display: inline-block; background: #333; color: #aaa;
+    border-radius: 10px; padding: 1px 8px; font-size: 11px;
+    margin-left: 6px; font-weight: 400;
+}
+
+/* ─── HEADER ─── */
+.header {
+    display: flex; align-items: center; gap: 16px;
+    padding: 14px 24px; background: #111; border-bottom: 1px solid #222;
+}
+.avatar {
+    width: 48px; height: 48px; border-radius: 50%;
+    object-fit: cover; border: 2px solid var(--accent);
+}
+.header-text h1 { font-size: 17px; color: var(--accent); }
+.header-text p { font-size: 12px; color: #888; }
+.header-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+.status-dot {
+    width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+}
+.status-label { font-size: 11px; color: #888; }
+.config-toggle {
+    background: none; border: none; color: #555; font-size: 18px;
+    cursor: pointer; padding: 4px 8px;
+}
+
+/* ─── DEV TOOLBAR ─── */
+.dev-toolbar {
+    display: none; padding: 10px 24px; background: #0d0800;
+    border-bottom: 1px solid #332200; gap: 8px; align-items: center;
+    flex-wrap: wrap;
+}
+.dev-toolbar.visible { display: flex; }
+.dev-toolbar .stats {
+    font-size: 12px; color: #cc8800; flex: 1;
+}
+.dev-toolbar button {
+    padding: 6px 14px; border: none; border-radius: 6px;
+    font-size: 12px; font-weight: 600; cursor: pointer;
+    transition: all 0.15s;
+}
+.btn-dev { background: #332200; color: #ff9500; }
+.btn-dev:hover { background: #443300; }
+.btn-danger { background: #331111; color: #ff4444; }
+.btn-danger:hover { background: #441818; }
+.category-select {
+    background: #1a1a2e; border: 1px solid #332200; border-radius: 6px;
+    padding: 5px 10px; color: #ff9500; font-size: 12px;
+}
+
+/* ─── CONFIG PANEL ─── */
+.config-panel {
+    display: none; padding: 20px 24px; background: #111;
+    border-bottom: 1px solid #222;
+}
+.config-panel.visible { display: block; }
+.config-panel label { display: block; color: #888; font-size: 13px; margin-bottom: 4px; }
+.config-panel input {
+    width: 100%; background: #1a1a2e; border: 1px solid #333;
+    border-radius: 8px; padding: 8px 12px; color: #e0e0e0;
+    font-size: 14px; margin-bottom: 12px;
+}
+.config-panel button {
+    background: var(--accent); color: #0a0a0a; border: none;
+    border-radius: 8px; padding: 10px 20px; font-weight: 600;
+    cursor: pointer;
+}
+
+/* ─── CHAT ─── */
+.chat {
+    flex: 1; overflow-y: auto; padding: 20px 24px;
+    display: flex; flex-direction: column; gap: 16px;
+}
+.msg {
+    max-width: 80%; padding: 12px 16px; border-radius: 12px;
+    line-height: 1.6; font-size: 15px; white-space: pre-wrap;
+}
+.msg.user {
+    background: #1a2a4a; color: #c8d8f8; align-self: flex-end;
+    border-bottom-right-radius: 4px;
+}
+.msg.assistant {
+    background: #1a1a2e; color: #e0e0e0; align-self: flex-start;
+    border-bottom-left-radius: 4px; border: 1px solid #252540;
+}
+.msg.interviewer {
+    background: #1a1200; color: #ffe0a0; align-self: flex-start;
+    border-bottom-left-radius: 4px; border: 1px solid #332200;
+}
+.msg.system {
+    background: transparent; color: #666; align-self: center;
+    font-size: 13px; text-align: center; max-width: 90%;
+}
+.msg .tag {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 1px; margin-bottom: 4px; display: block;
+}
+.msg.interviewer .tag { color: #ff9500; }
+.msg.assistant .tag { color: #00d4ff; }
+
+/* ─── TALKING AVATAR ─── */
+.avatar-container {
+    display: none;
+    justify-content: center; align-items: center;
+    padding: 20px 24px 8px; background: #0a0a0a;
+    flex-direction: column; gap: 8px;
+}
+.avatar-container.visible { display: flex; }
+
+.avatar-frame {
+    width: 200px; height: 200px; border-radius: 50%;
+    position: relative; overflow: hidden;
+    border: 3px solid #222; transition: border-color 0.3s, box-shadow 0.3s;
+    background: #111;
+}
+.avatar-frame.speaking {
+    border-color: #00d4ff;
+    box-shadow: 0 0 24px rgba(0, 212, 255, 0.3);
+}
+
+/* Three layers: upper face (static), mouth band (animated), body (static) */
+.avatar-layer {
+    position: absolute; left: 0; width: 100%; height: 100%;
+    object-fit: cover; object-position: center top;
+}
+/* Upper face — forehead to upper lip, static */
+.avatar-upper {
+    top: 0;
+    clip-path: polygon(0 0, 100% 0, 100% 47%, 0 47%);
+    z-index: 3;
+}
+/* Mouth/chin band — only this moves */
+.avatar-mouth {
+    top: 0;
+    clip-path: polygon(25% 45%, 75% 45%, 75% 56%, 25% 56%);
+    z-index: 2;
+    transform-origin: center 47%;
+}
+/* Body — collar, suit, static */
+.avatar-body {
+    top: 0;
+    clip-path: polygon(0 54%, 100% 54%, 100% 100%, 0 100%);
+    z-index: 1;
+}
+
+/* Speaking animation — only the mouth band moves down */
+.avatar-frame.speaking .avatar-mouth {
+    animation: lipSync 0.28s ease-in-out infinite alternate;
+}
+
+@keyframes lipSync {
+    0%   { transform: translateY(0px); }
+    100% { transform: translateY(2.5px); }
+}
+
+/* Subtle idle — barely perceptible */
+.avatar-frame:not(.speaking) .avatar-mouth {
+    transform: translateY(0);
+}
+
+.avatar-status {
+    font-size: 12px; color: #555; text-align: center;
+    letter-spacing: 1px; text-transform: uppercase;
+}
+.avatar-status.speaking { color: #00d4ff; }
+
+@media (max-width: 600px) {
+    .avatar-frame { width: 140px; height: 140px; }
+}
+
+.typing-indicator {
+    display: none; align-self: flex-start;
+    padding: 12px 16px; background: #1a1a2e;
+    border-radius: 12px; border: 1px solid #252540;
+}
+.typing-indicator.visible { display: flex; gap: 6px; align-items: center; }
+.typing-indicator span {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--accent);
+    animation: bounce 1.4s infinite ease-in-out;
+}
+.typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+.typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes bounce {
+    0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+    40% { transform: scale(1); opacity: 1; }
+}
+
+/* ─── INPUT AREA ─── */
+.input-area {
+    padding: 12px 16px; background: #111; border-top: 1px solid #222;
+    display: flex; flex-direction: column; gap: 8px;
+}
+.input-row {
+    display: flex; gap: 8px; align-items: flex-end; width: 100%;
+}
+textarea {
+    flex: 1; background: #1a1a2e; border: 1px solid #333;
+    border-radius: 12px; padding: 10px 14px; color: #e0e0e0;
+    font-size: 16px; font-family: inherit; resize: none;
+    min-height: 44px; max-height: 120px; outline: none;
+    line-height: 1.4; width: 100%;
+}
+textarea:focus { border-color: var(--accent); }
+textarea::placeholder { color: #555; }
+.send-btn {
+    background: var(--accent); color: #0a0a0a; border: none;
+    border-radius: 50%; width: 44px; height: 44px;
+    font-size: 20px; cursor: pointer; font-weight: bold;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; transition: all 0.2s;
+}
+.send-btn:hover { opacity: 0.85; transform: scale(1.05); }
+.send-btn:disabled { background: #333; color: #666; cursor: not-allowed; transform: none; opacity: 1; }
+
+.input-controls {
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+}
+.lang-toggle {
+    display: flex; gap: 4px; padding: 3px; background: #1a1a2e;
+    border-radius: 8px; border: 1px solid #333;
+}
+.lang-btn {
+    padding: 5px 10px; border: none; border-radius: 6px;
+    background: transparent; color: #888; font-size: 12px;
+    cursor: pointer; font-weight: 600;
+}
+.lang-btn.active { background: var(--accent); color: #0a0a0a; }
+
+@media (max-width: 600px) {
+    .msg { max-width: 92%; font-size: 14px; }
+    .header { padding: 8px 12px; gap: 10px; }
+    .header-text h1 { font-size: 15px; }
+    .header-text p { font-size: 11px; }
+    .avatar { width: 40px; height: 40px; }
+    .chat { padding: 12px; }
+    .input-area { padding: 8px 12px; }
+    .dev-toolbar { padding: 6px 12px; font-size: 11px; }
+    .dev-toolbar button { padding: 5px 10px; font-size: 11px; }
+    .avatar-frame { width: 120px; height: 120px; }
+    .mode-tab { font-size: 12px; padding: 8px 0; }
+}
+@media (max-width: 380px) {
+    textarea { font-size: 14px; padding: 8px 10px; min-height: 40px; }
+    .send-btn { width: 38px; height: 38px; font-size: 18px; }
+    .lang-btn { padding: 4px 8px; font-size: 11px; }
+}
+</style>
+</head>
+<body style="--accent: #00d4ff;">
+
+<!-- MODE BAR -->
+<div class="mode-bar">
+    <button class="mode-tab active" data-mode="develop" onclick="switchMode('develop')">
+        Develop <span class="qa-count" id="qaCountBadge">0</span>
+    </button>
+    <button class="mode-tab" data-mode="live" onclick="switchMode('live')">
+        Live
+    </button>
+</div>
+
+<!-- HEADER -->
+<div class="header">
+    <img class="avatar" id="avatarImg" src="./GL2_cyan.jpg" alt="GL"
+         onerror="this.src='./GL2_pro.jpg'; this.onerror=function(){this.style.display='none'}">
+    <div class="header-text">
+        <h1 id="headerTitle">Gorazd Lampic</h1>
+        <p id="headerSub">Digital Twin — Development Mode</p>
+    </div>
+    <div class="header-right">
+        <div class="status-dot" id="statusDot" style="background:#ff9500"></div>
+        <span class="status-label" id="statusLabel">Training</span>
+        <button class="config-toggle" onclick="toggleConfig()">&#9881;</button>
+    </div>
+</div>
+
+<!-- DEV TOOLBAR -->
+<div class="dev-toolbar visible" id="devToolbar">
+    <div class="stats" id="devStats">No Q&A pairs yet. Start an interview to train the twin.</div>
+    <select class="category-select" id="categorySelect">
+        <option value="auto">Auto (AI picks)</option>
+        <option value="elaphe">Elaphe / Motors</option>
+        <option value="syntropy">Syntropy / QW</option>
+        <option value="fusion">Fusion / Cosylab</option>
+        <option value="eu">EU Funding</option>
+        <option value="strategy">Strategy / Business</option>
+        <option value="ai">AI / Technology</option>
+        <option value="personal">Personal / Philosophy</option>
+    </select>
+    <button class="btn-dev" onclick="startInterview()">New Interview</button>
+</div>
+
+<!-- LIVE TOOLBAR -->
+<div class="dev-toolbar" id="liveToolbar" style="background:#000810;border-color:#002244">
+    <div class="stats" id="liveStats" style="color:#0088cc">Knowledge base: not loaded</div>
+    <button class="btn-dev" style="background:#002244;color:#00d4ff" onclick="document.getElementById('kbFile').click()">Load Knowledge Base</button>
+    <input type="file" id="kbFile" accept=".md,.txt" style="display:none" onchange="loadKnowledgeBase(event)">
+</div>
+
+<!-- CONFIG PANEL -->
+<div class="config-panel" id="configPanel">
+    <label>Anthropic API Key</label>
+    <textarea id="apiKeyInput" rows="1" autocomplete="off" spellcheck="false" style="font-family:monospace;font-size:13px;min-height:36px;max-height:36px" placeholder="sk-ant-..."></textarea>
+    <label>Model</label>
+    <input type="text" id="modelInput" autocomplete="off" value="claude-sonnet-4-6">
+    <label>ElevenLabs API Key (optional, for voice)</label>
+    <textarea id="elApiKeyInput" rows="1" autocomplete="off" spellcheck="false" style="font-family:monospace;font-size:13px;min-height:36px;max-height:36px" placeholder="sk_..."></textarea>
+    <div style="display:flex;gap:8px;margin-bottom:8px">
+        <button onclick="saveConfig()">Save & Connect</button>
+        <button onclick="testApiKey()" style="background:#332200;color:#ff9500">Test API Key</button>
+    </div>
+    <hr style="border:none;border-top:1px solid #333;margin:16px 0 12px">
+    <label style="font-weight:600;color:#aaa">Data Management</label>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+        <button onclick="exportKnowledgeBase()" style="background:#332200;color:#ff9500">Export Knowledge Base</button>
+        <button onclick="exportQA()" style="background:#332200;color:#ff9500">Export JSON</button>
+        <button onclick="document.getElementById('importFile').click()" style="background:#332200;color:#ff9500">Import JSON</button>
+        <button onclick="syncVoiceToElevenLabs()" id="syncVoiceBtn" style="background:#332200;color:#ff9500">Sync Voice</button>
+        <button onclick="clearQA()" style="background:#331111;color:#ff4444">Clear All Q&A</button>
+    </div>
+    <input type="file" id="importFile" accept=".json" style="display:none" onchange="importQA(event)">
+</div>
+
+<!-- TALKING AVATAR (Live mode) -->
+<div class="avatar-container" id="avatarContainer">
+    <div class="avatar-frame" id="avatarFrame">
+        <img class="avatar-layer avatar-upper" src="./GL2_cyan.jpg" alt="">
+        <img class="avatar-layer avatar-mouth" src="./GL2_cyan.jpg" alt="">
+        <img class="avatar-layer avatar-body" src="./GL2_cyan.jpg" alt="">
+    </div>
+    <div class="avatar-status" id="avatarStatus">Listening</div>
+</div>
+
+<!-- CHAT -->
+<div class="chat" id="chat"></div>
+
+<div class="typing-indicator" id="typing">
+    <span></span><span></span><span></span>
+</div>
+
+<!-- INPUT -->
+<div class="input-area">
+    <div class="input-row">
+        <button class="send-btn" id="micBtn" onclick="toggleMic()" style="background:#333;color:#e0e0e0;font-size:18px" title="Toggle microphone on/off">&#127908;</button>
+        <textarea id="input" placeholder="Answer the question..." rows="1"
+                  onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send()}"
+                  oninput="autoResize(this)"></textarea>
+        <button class="send-btn" id="sendBtn" onclick="send()">&#8593;</button>
+    </div>
+    <div class="input-controls">
+        <div class="lang-toggle">
+            <button class="lang-btn active" onclick="setLang(this, 'en')">EN</button>
+            <button class="lang-btn" onclick="setLang(this, 'sl')">SL</button>
+        </div>
+        <button class="lang-btn active" id="voiceToggle" onclick="toggleVoice(this)">&#128266; Voice ON</button>
+    </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════
+let apiKey = localStorage.getItem('dt_api_key') || '';
+let model = localStorage.getItem('dt_model') || 'claude-sonnet-4-6';
+let elApiKey = localStorage.getItem('dt_el_api_key') || '';
+let lang = 'en';
+let voiceEnabled = true; // voice on by default
+let mode = 'develop'; // 'develop' or 'live'
+let conversationHistory = [];
+let qaBank = JSON.parse(localStorage.getItem('dt_qa_bank') || '[]');
+let interviewActive = false;
+let ttsPlaying = false; // when true, mic input is ignored
+let lastInterviewerQuestion = '';
+
+const VOICE_EN = 'B8WYUCLpwN3jnf2Evp6S';
+const VOICE_SL = '2dLYkNPyP78Eu63xaCGB';
+
+// ═══════════════════════════════════════════
+//  SYSTEM PROMPTS
+// ═══════════════════════════════════════════
+const INTERVIEWER_PROMPT = `You are building a digital twin of Gorazd Lampic. Ask him ONE question at a time. After he answers, acknowledge briefly (1 sentence max) and ask the next question.
+
+FORMAT: Just the question. No numbering, no preamble, no "here's my question". Just ask.
+
+QUESTION DESIGN:
+- Frame questions so Gorazd can present his POSITIVE VIEWS, achievements, and unique insights.
+- Go DEEP — not "What is syntropy?" but "What's the most compelling experimental evidence that made you personally certain syntropy is real?"
+- Ask for STORIES, UNIQUE PERSPECTIVES, things he's PROUD of, his VISION.
+- Push for CONCRETE EXAMPLES, numbers, turning points.
+- After he answers, follow up on what he said — go deeper into the interesting parts.
+- After 3-4 questions in one topic, move to a different area.
+
+TOPICS: Elaphe, Quantum Wave/syntropy, fusion/Cosylab, EU funding, strategy, AI, personal philosophy, China business, patents.
+
+CATEGORY FOCUS: {CATEGORY}
+
+You know his background. Don't ask CV facts. Go deeper.
+
+RULES:
+- ONE question per message. Short and specific.
+- NEVER claim this chat connects to other systems or that you can take actions.
+- If he gives app feedback, say: "I'm just the interviewer — please tell that to Claude Code directly."
+- If addressed in Slovenian, ask in Slovenian.`;
+
+const TWIN_BASE_PROMPT = `You ARE Gorazd Lampic — physicist, entrepreneur, inventor from Ljubljana, Slovenia (born 1978). Co-founded Elaphe Propulsion Technologies (in-wheel motors, CEO 18 years, world leader), now Founder/CEO of Quantum Wave (syntropy semiconductors). Also: Cosylab fusion consultant, EPoSS Chairman (Transportation), Commissioner Zaharieva's 50-expert group member. FIDE chess (2099), national decathlon champion, national math champion (1992). 10+ patents, 30+ patent families built.
+
+Speak in FIRST PERSON as Gorazd. Be VERY CONCISE — 2-4 sentences maximum. Lead with the key point. No fluff, no corporate jargon, no preambles. One concrete example at most. If the question is simple, one sentence is enough. Think of it as a live conversation, not an essay. Occasional dry humor.
+
+KEY POSITIONS:
+- In-wheel motors: proven tech (Toyota, Ferrari, Mitsubishi, Lamborghini customers). Elaphe's moat = 18 years, 50+ prototypes, nobody has this depth. NVH HW "surprisingly good" (Honda, Zeekr). Market EUR 1.6B to 12B by 2030.
+- Syntropy: real science, NOT pseudoscience. 58 years of Detela's research. Experimental evidence (Ljubljana 1987 ~1pW, Shanghai 2003, Russia 2011). Extends thermodynamics understanding. Semiconductor heterostructures for energy harvesting. TRL 2-3. Deep-tech takes time.
+- AI: amplifier for thinking, not replacement. Use Claude for patents, strategy, research, proposals. Companies not adopting AI fall behind in months.
+- EU funding: 20+ projects won, >EUR 10M. Write HOW not WHAT. Each KPI needs owner. Consortium = real synergies.
+- Strategy: scenarios with probabilities. Cost discipline. Focus + opportunism. Founder credibility matters.
+- Elaphe: proud of what was built. Team executing on your foundation. You support the company. Don't criticize current management publicly.
+
+LANGUAGE: If addressed in Slovenian, respond in Slovenian (casual, natural, colloquial). Otherwise English. Never fabricate. Never commit on behalf of companies. This is a digital twin representation.`;
+
+// ═══════════════════════════════════════════
+//  MODE SWITCHING
+// ═══════════════════════════════════════════
+function switchMode(newMode) {
+    mode = newMode;
+    conversationHistory = [];
+    interviewActive = false;
+    document.getElementById('chat').innerHTML = '';
+
+    // Keep mic state across mode switch
+    const wasMicOn = micOn;
+    if (micOn) { stopRecognition(); }
+    accumulatedTranscript = '';
+    internalTranscript = '';
+    if (wasMicOn) {
+        setTimeout(() => { if (!micOn) toggleMic(); }, 500);
+    }
+
+    // Tab styling
+    document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
+    document.querySelector(`[data-mode="${mode}"]`).classList.add('active');
+
+    // Toolbars
+    document.getElementById('devToolbar').classList.toggle('visible', mode === 'develop');
+    document.getElementById('liveToolbar').classList.toggle('visible', mode === 'live');
+
+    // Avatar
+    document.getElementById('avatarContainer').classList.toggle('visible', mode === 'live');
+    if (mode === 'live') setAvatarIdle(); else stopAvatar();
+
+    // Colors
+    const accent = mode === 'develop' ? '#ff9500' : '#00d4ff';
+    document.body.style.setProperty('--accent', accent);
+
+    // Header
+    document.getElementById('headerSub').textContent = mode === 'develop'
+        ? 'Digital Twin — Development Mode'
+        : 'Physicist, Entrepreneur, Inventor — Digital Twin';
+    document.getElementById('statusDot').style.background = mode === 'develop' ? '#ff9500' : '#2ecc71';
+    document.getElementById('statusLabel').textContent = mode === 'develop' ? 'Training' : 'Online';
+
+    // Placeholder
+    document.getElementById('input').placeholder = mode === 'develop'
+        ? (lang === 'sl' ? 'Vaš odgovor...' : 'Your answer...')
+        : (lang === 'sl' ? 'Vprašajte Gorazda karkoli...' : 'Ask Gorazd anything...');
+
+    // Welcome message
+    if (mode === 'develop') {
+        addMessage('system', `Development Mode — ${qaBank.length} Q&A pairs stored.\nClick "New Interview" to start, or just type to answer the last question.`);
+    } else {
+        const qaPairCount = qaBank.length;
+        const kbLoaded = knowledgeBaseText ? 'Knowledge base loaded.' : '';
+        addMessage('system',
+            `Welcome. You're speaking with a digital twin of Gorazd Lampic.\n` +
+            `${kbLoaded} ${qaPairCount} Q&A pairs available.\n` +
+            `Ask about in-wheel motors, syntropy, EU funding, strategy, or anything else.\n` +
+            `This is an AI representation, not the real Gorazd.`);
+        updateLiveStats();
+    }
+
+    updateStats();
+}
+
+// ═══════════════════════════════════════════
+//  DEVELOP MODE — INTERVIEW
+// ═══════════════════════════════════════════
+async function startInterview() {
+    if (!apiKey) { toggleConfig(); return; }
+
+    conversationHistory = [];
+    interviewActive = true;
+    document.getElementById('chat').innerHTML = '';
+    addMessage('system', 'Starting interview session...');
+
+    const category = document.getElementById('categorySelect').value;
+    const categoryText = category === 'auto'
+        ? 'Pick the most interesting topic based on what you think needs more depth. Check the existing Q&A count by category to find gaps.'
+        : `Focus on: ${category}`;
+
+    const systemPrompt = INTERVIEWER_PROMPT.replace('{CATEGORY}', categoryText);
+
+    // Include existing QA summary so interviewer knows what's covered
+    let existingSummary = '';
+    if (qaBank.length > 0) {
+        const cats = {};
+        qaBank.forEach(qa => { cats[qa.category] = (cats[qa.category] || 0) + 1; });
+        existingSummary = `\n\nEXISTING Q&A COVERAGE (${qaBank.length} total): ${Object.entries(cats).map(([k,v]) => `${k}: ${v}`).join(', ')}.\nRecent questions asked: ${qaBank.slice(-5).map(q => q.question.substring(0, 60)).join(' | ')}\nAvoid repeating these. Go deeper or find gaps.`;
+    }
+
+    await callAPI(systemPrompt + existingSummary, [{ role: 'user', content: 'Start the interview. Ask me your first question.' }], 'interviewer');
+}
+
+async function sendDevelop() {
+    const input = document.getElementById('input');
+    // Use typed text if available, otherwise use voice transcript
+    const text = input.value.trim() || internalTranscript.trim();
+    if (!text || !apiKey) return;
+
+    // Save voice recording before clearing
+    stopAudioRecording();
+    saveCurrentRecording();
+
+    input.value = '';
+    input.style.height = 'auto';
+    accumulatedTranscript = '';
+    internalTranscript = '';
+    addMessage('user', text);
+
+    // Restart audio recording for next answer
+    if (micOn) startAudioRecording();
+
+    // Store Q&A pair (the 3 questions + the answer as one entry)
+    if (lastInterviewerQuestion) {
+        const qa = {
+            id: Date.now(),
+            question: lastInterviewerQuestion,
+            answer: text,
+            category: guessCategory(lastInterviewerQuestion),
+            timestamp: new Date().toISOString(),
+            lang: lang
+        };
+        qaBank.push(qa);
+        localStorage.setItem('dt_qa_bank', JSON.stringify(qaBank));
+        updateStats();
+    }
+
+    // Continue the conversation — ask next question
+    conversationHistory.push({ role: 'user', content: text });
+
+    const category = document.getElementById('categorySelect').value;
+    const categoryText = category === 'auto' ? 'Pick based on gaps' : `Focus on: ${category}`;
+    const systemPrompt = INTERVIEWER_PROMPT.replace('{CATEGORY}', categoryText);
+
+    let existingSummary = '';
+    if (qaBank.length > 0) {
+        const cats = {};
+        qaBank.forEach(qa => { cats[qa.category] = (cats[qa.category] || 0) + 1; });
+        existingSummary = `\n\nQ&A COVERAGE (${qaBank.length} total): ${Object.entries(cats).map(([k,v]) => `${k}: ${v}`).join(', ')}.`;
+    }
+
+    addMessage('system', `Saved (${qaBank.length} total).`);
+    await callAPI(systemPrompt + existingSummary, conversationHistory, 'interviewer');
+}
+
+function guessCategory(question) {
+    const q = question.toLowerCase();
+    if (/elaphe|motor|wheel|nvh|torque|oem|powertrain|sonic/i.test(q)) return 'elaphe';
+    if (/syntrop|quantum|detela|thermodynamic|semiconductor|entropy|kvantni/i.test(q)) return 'syntropy';
+    if (/fusion|cosylab|ukaea|plasma|tokamak/i.test(q)) return 'fusion';
+    if (/eu |horizon|ipcei|chips act|proposal|consortium|eposs|funding/i.test(q)) return 'eu';
+    if (/strateg|board|investor|valuation|governance|ceo|founder|company/i.test(q)) return 'strategy';
+    if (/ai |claude|agent|neural|machine learn|automat/i.test(q)) return 'ai';
+    return 'personal';
+}
+
+// ═══════════════════════════════════════════
+//  LIVE MODE
+// ═══════════════════════════════════════════
+
+// Knowledge base loaded from file (set via loadKnowledgeBase)
+let knowledgeBaseText = localStorage.getItem('dt_knowledge_base') || '';
+
+async function sendLive() {
+    const input = document.getElementById('input');
+    const text = input.value.trim() || internalTranscript.trim();
+    if (!text || !apiKey) return;
+
+    // Save voice recording
+    stopAudioRecording();
+    saveCurrentRecording();
+
+    input.value = '';
+    input.style.height = 'auto';
+    accumulatedTranscript = '';
+    internalTranscript = '';
+    addMessage('user', text);
+
+    if (micOn) startAudioRecording();
+
+    conversationHistory.push({ role: 'user', content: text });
+
+    // Build enriched system prompt
+    let enrichedPrompt = TWIN_BASE_PROMPT;
+
+    // Inject knowledge base file content if loaded
+    if (knowledgeBaseText) {
+        enrichedPrompt += '\n\n## GORAZD\'S AUTHENTIC KNOWLEDGE BASE\nThe following are Gorazd\'s real answers from interviews. Use them as ground truth for tone, content, and style. When a question matches one of these topics, draw heavily from his actual words:\n\n' + knowledgeBaseText;
+    }
+
+    // Also inject most relevant Q&A pairs from localStorage
+    if (qaBank.length > 0) {
+        const relevant = findRelevantQAs(text, 10);
+        if (relevant.length > 0) {
+            enrichedPrompt += '\n\n## MOST RELEVANT Q&A FOR THIS QUESTION:\n\n';
+            relevant.forEach(qa => {
+                enrichedPrompt += `Q: ${qa.question}\nGorazd: ${qa.answer}\n\n`;
+            });
+        }
+    }
+
+    enrichedPrompt += '\n\nMatch the tone, specificity, and style of Gorazd\'s real answers above. Use his actual examples and phrasings when relevant. Be concise — 2-4 sentences for simple questions, more for complex ones.';
+
+    await callAPI(enrichedPrompt, conversationHistory, 'assistant');
+}
+
+function findRelevantQAs(query, maxResults) {
+    if (qaBank.length === 0) return [];
+
+    // Extract keywords from query
+    const stopWords = new Set(['the','a','an','is','are','was','were','be','been','being','have','has','had',
+        'do','does','did','will','would','could','should','may','might','shall','can',
+        'what','how','why','when','where','who','which','that','this','these','those',
+        'and','or','but','if','in','on','at','to','for','of','with','by','from','about','your','you','me','my']);
+    const queryWords = query.toLowerCase().split(/\W+/).filter(w => w.length > 2 && !stopWords.has(w));
+
+    // Score each QA
+    const scored = qaBank.map(qa => {
+        const text = (qa.question + ' ' + qa.answer).toLowerCase();
+        let score = 0;
+        queryWords.forEach(w => {
+            if (text.includes(w)) score += 1;
+            // Bonus for exact phrase matches in question
+            if (qa.question.toLowerCase().includes(w)) score += 0.5;
+        });
+        // Bonus for category match
+        const queryCategory = guessCategory(query);
+        if (qa.category === queryCategory) score += 2;
+        return { ...qa, score };
+    });
+
+    // Sort by score, take top N
+    scored.sort((a, b) => b.score - a.score);
+    return scored.filter(s => s.score > 0).slice(0, maxResults);
+}
+
+// ═══════════════════════════════════════════
+//  SHARED — API CALL
+// ═══════════════════════════════════════════
+async function callAPI(systemPrompt, messages, msgClass) {
+    const typing = document.getElementById('typing');
+    typing.classList.add('visible');
+    document.getElementById('sendBtn').disabled = true;
+
+    // Start avatar speaking animation while waiting for response
+    if (mode === 'live') setAvatarSpeaking();
+
+    try {
+        const response = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': apiKey,
+                'anthropic-version': '2023-06-01',
+                'anthropic-dangerous-direct-browser-access': 'true',
+            },
+            body: JSON.stringify({
+                model: model,
+                max_tokens: 2048,
+                system: systemPrompt,
+                messages: messages,
+            }),
+        });
+
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            const msg = err.error?.message || `API error ${response.status}`;
+            throw new Error(`Anthropic: ${msg} (status ${response.status}, model: ${model}, key starts: ${apiKey.substring(0,12)}...)`);
+        }
+
+        const data = await response.json();
+        const reply = data.content[0].text;
+
+        conversationHistory.push({ role: 'assistant', content: reply });
+
+        if (mode === 'develop') {
+            lastInterviewerQuestion = reply;
+        }
+
+        addMessage(msgClass, reply);
+
+        // Voice — play in both modes, avatar syncs in live mode
+        if (voiceEnabled && elApiKey) {
+            speakText(reply); // avatar goes idle when audio ends
+        } else if (mode === 'live') {
+            // No voice — show speaking for a reading-time duration, then idle
+            const readTime = Math.min(reply.length * 40, 8000);
+            setTimeout(() => setAvatarIdle(), readTime);
+        }
+
+    } catch (err) {
+        addMessage('system', `Error: ${err.message}`);
+        if (mode === 'live') setAvatarIdle();
+    } finally {
+        typing.classList.remove('visible');
+        document.getElementById('sendBtn').disabled = false;
+        document.getElementById('input').focus();
+    }
+}
+
+// ═══════════════════════════════════════════
+//  DISPATCH
+// ═══════════════════════════════════════════
+function send() {
+    if (!apiKey) { toggleConfig(); addMessage('system', 'Enter your API key first.'); return; }
+    if (mode === 'develop') sendDevelop();
+    else sendLive();
+}
+
+// ═══════════════════════════════════════════
+//  UI HELPERS
+// ═══════════════════════════════════════════
+function addMessage(role, text) {
+    const chat = document.getElementById('chat');
+    const div = document.createElement('div');
+    div.className = `msg ${role}`;
+    div.textContent = text;
+    chat.appendChild(div);
+    chat.scrollTop = chat.scrollHeight;
+    return div;
+}
+
+// ═══════════════════════════════════════════
+//  TALKING AVATAR CONTROL
+// ═══════════════════════════════════════════
+function setAvatarSpeaking() {
+    const frame = document.getElementById('avatarFrame');
+    const status = document.getElementById('avatarStatus');
+    frame.classList.add('speaking');
+    status.textContent = 'Speaking';
+    status.classList.add('speaking');
+}
+
+function setAvatarIdle() {
+    const frame = document.getElementById('avatarFrame');
+    const status = document.getElementById('avatarStatus');
+    frame.classList.remove('speaking');
+    status.textContent = 'Listening';
+    status.classList.remove('speaking');
+}
+
+function stopAvatar() {
+    setAvatarIdle();
+}
+
+function autoResize(el) {
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 150) + 'px';
+}
+
+function setLang(btn, l) {
+    lang = l;
+    document.querySelectorAll('.lang-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    if (mode === 'develop') {
+        document.getElementById('input').placeholder = l === 'sl' ? 'Vaš odgovor...' : 'Your answer...';
+    } else {
+        document.getElementById('input').placeholder = l === 'sl' ? 'Vprašajte Gorazda karkoli...' : 'Ask Gorazd anything...';
+    }
+}
+
+function toggleConfig() {
+    const panel = document.getElementById('configPanel');
+    panel.classList.toggle('visible');
+    document.getElementById('apiKeyInput').value = apiKey;
+    document.getElementById('modelInput').value = model;
+    document.getElementById('elApiKeyInput').value = elApiKey;
+}
+
+function saveConfig() {
+    // Strip all whitespace, line breaks, invisible characters
+    apiKey = document.getElementById('apiKeyInput').value.replace(/\s+/g, '');
+    model = document.getElementById('modelInput').value.trim();
+    elApiKey = document.getElementById('elApiKeyInput').value.replace(/\s+/g, '');
+    localStorage.setItem('dt_api_key', apiKey);
+    localStorage.setItem('dt_model', model);
+    localStorage.setItem('dt_el_api_key', elApiKey);
+    document.getElementById('configPanel').classList.remove('visible');
+
+    // Show key diagnostics
+    const diag = [];
+    diag.push(`Anthropic key: ${apiKey.length} chars, starts "${apiKey.substring(0,12)}...", ends "...${apiKey.slice(-4)}"`);
+    if (elApiKey) diag.push(`ElevenLabs key: ${elApiKey.length} chars`);
+    if (!apiKey.startsWith('sk-ant-')) diag.push('WARNING: Anthropic key should start with "sk-ant-"');
+    if (apiKey.length < 50) diag.push('WARNING: Key looks too short — make sure you pasted the full key');
+    addMessage('system', 'Keys saved.\n' + diag.join('\n'));
+}
+
+async function testApiKey() {
+    const key = document.getElementById('apiKeyInput').value.replace(/\s+/g, '');
+    if (!key) { addMessage('system', 'Enter a key first.'); return; }
+    addMessage('system', `Testing key (${key.length} chars, starts "${key.substring(0,12)}")...`);
+    try {
+        const r = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': key,
+                'anthropic-version': '2023-06-01',
+                'anthropic-dangerous-direct-browser-access': 'true',
+            },
+            body: JSON.stringify({
+                model: 'claude-haiku-4-5-20251001',
+                max_tokens: 10,
+                messages: [{ role: 'user', content: 'Hi' }],
+            }),
+        });
+        if (r.ok) {
+            addMessage('system', 'API key is VALID. Connection works.');
+        } else {
+            const err = await r.json().catch(() => ({}));
+            addMessage('system', `API key FAILED: ${err.error?.message || r.status}\nStatus: ${r.status}\nKey: ${key.substring(0,15)}...${key.slice(-4)}`);
+        }
+    } catch (e) {
+        addMessage('system', `Connection error: ${e.message}`);
+    }
+}
+
+// ═══════════════════════════════════════════
+//  Q&A DATA MANAGEMENT
+// ═══════════════════════════════════════════
+function updateStats() {
+    const cats = {};
+    qaBank.forEach(qa => { cats[qa.category] = (cats[qa.category] || 0) + 1; });
+    const total = qaBank.length;
+    document.getElementById('qaCountBadge').textContent = total;
+
+    if (total === 0) {
+        document.getElementById('devStats').textContent = 'No Q&A pairs yet. Start an interview to train the twin.';
+    } else {
+        const parts = Object.entries(cats).sort((a,b) => b[1] - a[1]).map(([k,v]) => `${k}: ${v}`);
+        document.getElementById('devStats').textContent = `${total} Q&A pairs | ${parts.join(' | ')}`;
+    }
+}
+
+function exportQA() {
+    if (qaBank.length === 0) { addMessage('system', 'Nothing to export.'); return; }
+    const blob = new Blob([JSON.stringify(qaBank, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `gorazd_twin_qa_${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    addMessage('system', `Exported ${qaBank.length} Q&A pairs as JSON backup.`);
+}
+
+function exportKnowledgeBase() {
+    if (qaBank.length === 0) { addMessage('system', 'Nothing to export. Run an interview first.'); return; }
+
+    // Group by category
+    const categories = {
+        elaphe: { title: 'Elaphe & In-Wheel Motors', items: [] },
+        syntropy: { title: 'Syntropy & Quantum Wave', items: [] },
+        fusion: { title: 'Fusion & Cosylab', items: [] },
+        eu: { title: 'EU Funding & Policy', items: [] },
+        strategy: { title: 'Strategy & Entrepreneurship', items: [] },
+        ai: { title: 'AI & Technology', items: [] },
+        personal: { title: 'Personal Philosophy & Stories', items: [] },
+    };
+
+    qaBank.forEach(qa => {
+        const cat = categories[qa.category] || categories.personal;
+        cat.items.push(qa);
+    });
+
+    // Build markdown
+    let md = `# Gorazd Lampic — Digital Twin Knowledge Base\n\n`;
+    md += `> This file contains Gorazd's authentic answers collected through interviews.\n`;
+    md += `> Review and edit freely — this is the ground truth for the digital twin.\n`;
+    md += `> Last exported: ${new Date().toISOString().slice(0, 16).replace('T', ' ')}\n`;
+    md += `> Total entries: ${qaBank.length}\n\n`;
+    md += `---\n\n`;
+
+    for (const [key, cat] of Object.entries(categories)) {
+        if (cat.items.length === 0) continue;
+        md += `## ${cat.title}\n\n`;
+        cat.items.forEach((qa, i) => {
+            md += `### Q: ${qa.question}\n\n`;
+            md += `${qa.answer}\n\n`;
+            if (qa.lang && qa.lang !== 'en') md += `*(answered in ${qa.lang === 'sl' ? 'Slovenian' : qa.lang})*\n\n`;
+        });
+        md += `---\n\n`;
+    }
+
+    // Download
+    const blob = new Blob([md], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'knowledge_base.md';
+    a.click();
+    URL.revokeObjectURL(url);
+    addMessage('system', `Knowledge base exported (${qaBank.length} entries). Review the file, edit as needed, then place it in the digital_twin folder.`);
+}
+
+function importQA(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        try {
+            const data = JSON.parse(e.target.result);
+            if (!Array.isArray(data)) throw new Error('Invalid format');
+            // Merge, avoiding duplicates by id
+            const existingIds = new Set(qaBank.map(q => q.id));
+            let added = 0;
+            data.forEach(qa => {
+                if (!existingIds.has(qa.id) && qa.question && qa.answer) {
+                    qaBank.push(qa);
+                    added++;
+                }
+            });
+            localStorage.setItem('dt_qa_bank', JSON.stringify(qaBank));
+            updateStats();
+            addMessage('system', `Imported ${added} new Q&A pairs (${data.length - added} duplicates skipped).`);
+        } catch (err) {
+            addMessage('system', `Import failed: ${err.message}`);
+        }
+    };
+    reader.readAsText(file);
+    event.target.value = '';
+}
+
+function loadKnowledgeBase(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        knowledgeBaseText = e.target.result;
+        localStorage.setItem('dt_knowledge_base', knowledgeBaseText);
+        // Count sections
+        const sections = (knowledgeBaseText.match(/^### Q:/gm) || []).length;
+        document.getElementById('liveStats').textContent = `Knowledge base loaded: ${file.name} (${sections} entries, ${(knowledgeBaseText.length / 1024).toFixed(1)}KB)`;
+        addMessage('system', `Knowledge base loaded: ${sections} entries from ${file.name}. The twin will now use your reviewed content.`);
+    };
+    reader.readAsText(file);
+    event.target.value = '';
+}
+
+function updateLiveStats() {
+    if (knowledgeBaseText) {
+        const sections = (knowledgeBaseText.match(/^### Q:/gm) || []).length;
+        document.getElementById('liveStats').textContent = `Knowledge base: ${sections} entries (${(knowledgeBaseText.length / 1024).toFixed(1)}KB) + ${qaBank.length} Q&A pairs`;
+    } else if (qaBank.length > 0) {
+        document.getElementById('liveStats').textContent = `Using ${qaBank.length} Q&A pairs from interviews (no knowledge base file loaded)`;
+    } else {
+        document.getElementById('liveStats').textContent = `Knowledge base: not loaded. Run interviews in Develop mode first.`;
+    }
+}
+
+function clearQA() {
+    if (qaBank.length === 0) return;
+    if (!confirm(`Delete all ${qaBank.length} Q&A pairs? This cannot be undone.`)) return;
+    qaBank = [];
+    localStorage.setItem('dt_qa_bank', JSON.stringify(qaBank));
+    updateStats();
+    addMessage('system', 'All Q&A pairs cleared.');
+}
+
+// ═══════════════════════════════════════════
+//  VOICE (Live mode only)
+// ═══════════════════════════════════════════
+function toggleVoice(btn) {
+    voiceEnabled = !voiceEnabled;
+    btn.classList.toggle('active');
+    btn.textContent = voiceEnabled ? '\uD83D\uDD0A Voice ON' : '\uD83D\uDD08 Voice';
+    if (voiceEnabled && !elApiKey) {
+        toggleConfig();
+        addMessage('system', 'Enter your ElevenLabs API key to enable voice.');
+        voiceEnabled = false;
+        btn.classList.remove('active');
+        btn.textContent = '\uD83D\uDD08 Voice';
+    }
+}
+
+async function speakText(text) {
+    if (!voiceEnabled || !elApiKey) return;
+    const voiceId = lang === 'sl' ? VOICE_SL : VOICE_EN;
+
+    // FULLY stop recognition before playing audio — prevents interruption
+    ttsPlaying = true;
+    const micWasOn = micOn;
+    if (micOn || isListening) {
+        micOn = false;
+        if (recognition) { try { recognition.abort(); } catch(e) {} }
+        isListening = false;
+    }
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        try { mediaRecorder.stop(); } catch(e) {}
+    }
+
+    try {
+        const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+            method: 'POST',
+            headers: { 'xi-api-key': elApiKey, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                text: text.substring(0, 2500),
+                model_id: 'eleven_multilingual_v2',
+                voice_settings: {
+                    stability: lang === 'sl' ? 0.75 : 0.5,
+                    similarity_boost: lang === 'sl' ? 1.0 : 0.9,
+                    style: lang === 'sl' ? 0.1 : 0.3,
+                    use_speaker_boost: true
+                }
+            }),
+        });
+        if (r.ok) {
+            const blob = await r.blob();
+            const audio = new Audio(URL.createObjectURL(blob));
+            setAvatarSpeaking();
+            audio.onended = () => {
+                setAvatarIdle();
+                ttsPlaying = false;
+                accumulatedTranscript = '';
+                internalTranscript = '';
+                // Restart mic after TTS finishes
+                if (micWasOn) {
+                    setTimeout(() => {
+                        micOn = true;
+                        startRecognition();
+                        startAudioRecording();
+                        document.getElementById('micBtn').style.background = '#e74c3c';
+                        document.getElementById('micBtn').style.color = 'white';
+                    }, 500);
+                }
+            };
+            audio.onerror = () => {
+                setAvatarIdle();
+                ttsPlaying = false;
+                if (micWasOn) { micOn = true; startRecognition(); }
+            };
+            audio.play();
+        } else {
+            setAvatarIdle();
+            ttsPlaying = false;
+            if (micWasOn) { micOn = true; startRecognition(); }
+        }
+    } catch (e) {
+        console.error('Voice error:', e);
+        setAvatarIdle();
+        ttsPlaying = false;
+        if (micWasOn) { micOn = true; startRecognition(); }
+    }
+}
+
+// ═══════════════════════════════════════════
+//  SPEECH-TO-TEXT (both modes)
+//  Mobile-friendly: uses short recognition sessions with auto-restart
+//  Tap mic to toggle on/off. Stays on until you turn it off.
+// ═══════════════════════════════════════════
+let recognition = null;
+let isListening = false;
+let micOn = false;
+let silenceTimer = null;
+const SILENCE_TIMEOUT = 5000;
+let accumulatedTranscript = '';
+let internalTranscript = '';
+let restartTimer = null;
+
+async function toggleMic() {
+    const btn = document.getElementById('micBtn');
+
+    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+        addMessage('system', 'Speech recognition not supported. Use Chrome.');
+        return;
+    }
+
+    if (ttsPlaying) {
+        addMessage('system', 'Wait for the response to finish speaking.');
+        return;
+    }
+
+    // If turning ON, first explicitly request mic permission (triggers native dialog on mobile)
+    if (!micOn) {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            // Permission granted — save stream for audio recording
+            audioStream = stream;
+        } catch (err) {
+            addMessage('system', 'Microphone access denied. Please tap "Allow" when the browser asks for permission, then try again.');
+            return;
+        }
+    }
+
+    micOn = !micOn;
+
+    if (micOn) {
+        accumulatedTranscript = '';
+        internalTranscript = '';
+        startRecognition();
+        startAudioRecording();
+        btn.style.background = '#e74c3c';
+        btn.style.color = 'white';
+        document.getElementById('input').placeholder = 'Listening...';
+    } else {
+        fullStopRecognition();
+        btn.style.background = '#333';
+        btn.style.color = '#e0e0e0';
+        document.getElementById('input').placeholder = mode === 'develop' ? 'Your answer...' : 'Ask Gorazd anything...';
+    }
+}
+
+function startRecognition() {
+    if (ttsPlaying) return; // never start during TTS
+    if (recognition) { try { recognition.abort(); } catch(e) {} }
+    clearTimeout(restartTimer);
+
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    recognition = new SR();
+    recognition.lang = lang === 'sl' ? 'sl-SI' : 'en-US';
+    recognition.interimResults = true;
+    // Mobile works better with short sessions that auto-restart
+    recognition.continuous = !(/Android|iPhone|iPad/i.test(navigator.userAgent));
+
+    recognition.onstart = () => {
+        isListening = true;
+    };
+
+    recognition.onresult = (e) => {
+        if (ttsPlaying) return;
+
+        clearTimeout(silenceTimer);
+        document.getElementById('micBtn').style.background = '#e74c3c';
+
+        let finalText = '';
+        let interimText = '';
+        for (let i = 0; i < e.results.length; i++) {
+            if (e.results[i].isFinal) {
+                finalText += e.results[i][0].transcript;
+            } else {
+                interimText += e.results[i][0].transcript;
+            }
+        }
+
+        // Show what we're hearing in the placeholder (feedback to user)
+        const preview = (finalText + interimText).trim();
+        if (preview) {
+            document.getElementById('input').placeholder = preview.substring(preview.length - 60);
+        }
+
+        // Store internally
+        if (finalText) {
+            accumulatedTranscript = (accumulatedTranscript + ' ' + finalText).trim();
+            internalTranscript = accumulatedTranscript;
+        }
+
+        // Silence timer — visual hint only
+        if (e.results[e.results.length - 1].isFinal) {
+            silenceTimer = setTimeout(() => {
+                if (micOn && !ttsPlaying) {
+                    document.getElementById('micBtn').style.background = '#994422';
+                    document.getElementById('input').placeholder = internalTranscript
+                        ? 'Tap send when ready. Still listening...'
+                        : 'Listening...';
+                }
+            }, SILENCE_TIMEOUT);
+        }
+    };
+
+    recognition.onend = () => {
+        isListening = false;
+        // Auto-restart if mic is on and TTS is not playing
+        if (micOn && !ttsPlaying) {
+            restartTimer = setTimeout(() => {
+                if (micOn && !ttsPlaying) startRecognition();
+            }, 300);
+        }
+    };
+
+    recognition.onerror = (e) => {
+        if (e.error === 'no-speech' || e.error === 'aborted') return;
+        isListening = false;
+        if (e.error === 'not-allowed') {
+            addMessage('system', 'Microphone permission denied. Please allow mic access in browser settings.');
+            micOn = false;
+            document.getElementById('micBtn').style.background = '#333';
+            document.getElementById('micBtn').style.color = '#e0e0e0';
+            return;
+        }
+        // Transient error — retry
+        if (micOn && !ttsPlaying) {
+            restartTimer = setTimeout(() => { if (micOn) startRecognition(); }, 1000);
+        }
+    };
+
+    try {
+        recognition.start();
+    } catch (e) {
+        // Already started — ignore
+    }
+}
+
+function fullStopRecognition() {
+    micOn = false;
+    clearTimeout(restartTimer);
+    clearTimeout(silenceTimer);
+    if (recognition) { try { recognition.abort(); } catch(e) {} }
+    isListening = false;
+    stopAudioRecording();
+}
+
+function stopRecognition() {
+    fullStopRecognition();
+}
+
+// ═══════════════════════════════════════════
+//  AUDIO RECORDING & VOICE SYNC
+//  Records raw audio alongside speech recognition
+//  Uploads samples to ElevenLabs to improve voice clone
+// ═══════════════════════════════════════════
+let mediaRecorder = null;
+let audioChunks = [];
+let voiceSamples = []; // { blob, lang, timestamp, duration }
+let audioStream = null;
+
+async function startAudioRecording() {
+    try {
+        // Reuse existing stream if available
+        if (!audioStream) {
+            audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        }
+        mediaRecorder = new MediaRecorder(audioStream, { mimeType: 'audio/webm;codecs=opus' });
+        audioChunks = [];
+
+        mediaRecorder.ondataavailable = (e) => {
+            if (e.data.size > 0) audioChunks.push(e.data);
+        };
+
+        mediaRecorder.start(1000); // collect in 1s chunks
+    } catch (e) {
+        console.log('Audio recording not available:', e.message);
+    }
+}
+
+function stopAudioRecording() {
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
+    }
+}
+
+function saveCurrentRecording() {
+    if (audioChunks.length === 0) return;
+
+    const blob = new Blob(audioChunks, { type: 'audio/webm' });
+    // Only save if longer than 3 seconds (meaningful speech)
+    if (blob.size > 10000) {
+        voiceSamples.push({
+            blob: blob,
+            lang: lang,
+            timestamp: new Date().toISOString(),
+            size: blob.size
+        });
+        updateVoiceSyncStats();
+    }
+    audioChunks = [];
+}
+
+function updateVoiceSyncStats() {
+    const btn = document.getElementById('syncVoiceBtn');
+    if (btn) {
+        const count = voiceSamples.length;
+        btn.textContent = count > 0 ? `Sync Voice (${count} samples)` : 'Sync Voice';
+    }
+}
+
+// Clean audio: trim silence and remove filler sounds using Web Audio API
+async function cleanAudioBlob(blob) {
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const arrayBuffer = await blob.arrayBuffer();
+
+    let audioBuffer;
+    try {
+        audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+    } catch (e) {
+        // If decoding fails, return original
+        audioCtx.close();
+        return blob;
+    }
+
+    const sampleRate = audioBuffer.sampleRate;
+    const rawData = audioBuffer.getChannelData(0);
+
+    // 1. Find silence threshold (RMS-based)
+    let totalRms = 0;
+    const blockSize = Math.floor(sampleRate * 0.02); // 20ms blocks
+    const blockCount = Math.floor(rawData.length / blockSize);
+    const blockRms = [];
+    for (let i = 0; i < blockCount; i++) {
+        let sum = 0;
+        for (let j = 0; j < blockSize; j++) {
+            const s = rawData[i * blockSize + j];
+            sum += s * s;
+        }
+        const rms = Math.sqrt(sum / blockSize);
+        blockRms.push(rms);
+        totalRms += rms;
+    }
+    const avgRms = totalRms / blockCount;
+    const silenceThreshold = avgRms * 0.15; // below 15% of average = silence
+
+    // 2. Find speech regions (above threshold)
+    const speechRegions = [];
+    let inSpeech = false;
+    let start = 0;
+    const minSpeechBlocks = Math.ceil(0.15 * sampleRate / blockSize); // 150ms minimum speech
+    const minSilenceBlocks = Math.ceil(0.3 * sampleRate / blockSize);  // 300ms silence = gap
+
+    let silenceCount = 0;
+    for (let i = 0; i < blockRms.length; i++) {
+        if (blockRms[i] > silenceThreshold) {
+            if (!inSpeech) { start = i; inSpeech = true; }
+            silenceCount = 0;
+        } else if (inSpeech) {
+            silenceCount++;
+            if (silenceCount >= minSilenceBlocks) {
+                const end = i - silenceCount;
+                if (end - start >= minSpeechBlocks) {
+                    speechRegions.push([start * blockSize, end * blockSize]);
+                }
+                inSpeech = false;
+                silenceCount = 0;
+            }
+        }
+    }
+    if (inSpeech) {
+        const end = blockRms.length;
+        if (end - start >= minSpeechBlocks) {
+            speechRegions.push([start * blockSize, Math.min(end * blockSize, rawData.length)]);
+        }
+    }
+
+    if (speechRegions.length === 0) {
+        audioCtx.close();
+        return blob; // no speech found, return original
+    }
+
+    // 3. Stitch speech regions together with tiny crossfade
+    const gapSamples = Math.floor(sampleRate * 0.05); // 50ms gap between segments
+    let totalLength = 0;
+    speechRegions.forEach(r => totalLength += (r[1] - r[0]) + gapSamples);
+
+    const cleanBuffer = audioCtx.createBuffer(1, totalLength, sampleRate);
+    const cleanData = cleanBuffer.getChannelData(0);
+    let writePos = 0;
+    for (const [s, e] of speechRegions) {
+        for (let i = s; i < e && writePos < totalLength; i++) {
+            cleanData[writePos++] = rawData[i];
+        }
+        // Add tiny silence gap
+        for (let i = 0; i < gapSamples && writePos < totalLength; i++) {
+            cleanData[writePos++] = 0;
+        }
+    }
+
+    // 4. Encode back to WAV (more compatible with ElevenLabs than webm)
+    const wavBlob = audioBufferToWav(cleanBuffer);
+    audioCtx.close();
+    return wavBlob;
+}
+
+function audioBufferToWav(buffer) {
+    const numChannels = 1;
+    const sampleRate = buffer.sampleRate;
+    const data = buffer.getChannelData(0);
+    const dataLength = data.length * 2; // 16-bit
+    const headerLength = 44;
+    const arrayBuffer = new ArrayBuffer(headerLength + dataLength);
+    const view = new DataView(arrayBuffer);
+
+    // WAV header
+    const writeStr = (offset, str) => { for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i)); };
+    writeStr(0, 'RIFF');
+    view.setUint32(4, 36 + dataLength, true);
+    writeStr(8, 'WAVE');
+    writeStr(12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true); // PCM
+    view.setUint16(22, numChannels, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * numChannels * 2, true);
+    view.setUint16(32, numChannels * 2, true);
+    view.setUint16(34, 16, true);
+    writeStr(36, 'data');
+    view.setUint32(40, dataLength, true);
+
+    // Audio data
+    let offset = 44;
+    for (let i = 0; i < data.length; i++) {
+        const s = Math.max(-1, Math.min(1, data[i]));
+        view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+        offset += 2;
+    }
+
+    return new Blob([arrayBuffer], { type: 'audio/wav' });
+}
+
+async function syncVoiceToElevenLabs() {
+    if (voiceSamples.length === 0) {
+        addMessage('system', 'No voice samples recorded yet. Speak some answers first.');
+        return;
+    }
+    if (!elApiKey) {
+        addMessage('system', 'ElevenLabs API key required. Set it in the gear menu.');
+        return;
+    }
+
+    const voiceId = lang === 'sl' ? VOICE_SL : VOICE_EN;
+    const samplesToUpload = voiceSamples.filter(s => s.lang === lang);
+    if (samplesToUpload.length === 0) {
+        addMessage('system', `No ${lang === 'sl' ? 'Slovenian' : 'English'} samples. Switch language or record more.`);
+        return;
+    }
+
+    addMessage('system', `Cleaning ${samplesToUpload.length} samples (removing silence, filler sounds)...`);
+
+    try {
+        // First get current voice name
+        const infoRes = await fetch(`https://api.elevenlabs.io/v1/voices/${voiceId}`, {
+            headers: { 'xi-api-key': elApiKey }
+        });
+        if (!infoRes.ok) throw new Error('Could not fetch voice info');
+        const voiceInfo = await infoRes.json();
+
+        // Clean each sample
+        const formData = new FormData();
+        formData.append('name', voiceInfo.name);
+
+        let cleanedCount = 0;
+        for (let i = 0; i < samplesToUpload.length; i++) {
+            const cleaned = await cleanAudioBlob(samplesToUpload[i].blob);
+            // Only include if cleaned audio is substantial (>1KB = ~0.5s of WAV)
+            if (cleaned.size > 1000) {
+                formData.append('files', cleaned, `gorazd_${lang}_${i}_${Date.now()}.wav`);
+                cleanedCount++;
+            }
+        }
+
+        if (cleanedCount === 0) {
+            addMessage('system', 'All samples were too short or noisy after cleaning. Record longer answers.');
+            return;
+        }
+
+        addMessage('system', `Uploading ${cleanedCount} cleaned samples to ElevenLabs...`);
+
+        const res = await fetch(`https://api.elevenlabs.io/v1/voices/${voiceId}/edit`, {
+            method: 'POST',
+            headers: { 'xi-api-key': elApiKey },
+            body: formData
+        });
+
+        if (res.ok) {
+            addMessage('system', `Voice updated with ${cleanedCount} clean samples. The ${lang === 'sl' ? 'Slovenian' : 'English'} voice will sound more like you now.`);
+            voiceSamples = voiceSamples.filter(s => s.lang !== lang);
+            updateVoiceSyncStats();
+        } else {
+            const err = await res.json();
+            throw new Error(err.detail?.message || JSON.stringify(err));
+        }
+    } catch (e) {
+        addMessage('system', `Voice sync error: ${e.message}`);
+    }
+}
+
+// ═══════════════════════════════════════════
+//  INIT
+// ═══════════════════════════════════════════
+updateStats();
+switchMode('develop');
+
+if (!apiKey) {
+    setTimeout(() => addMessage('system', 'Click the gear icon to enter your Anthropic API key.'), 500);
+}
+
+// Mic does NOT auto-start. User taps the mic button to begin.
+// This avoids mobile permission issues.
+
+// Register service worker for PWA
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw.js').then(() => {
+        console.log('Service worker registered');
+    }).catch(e => console.log('SW registration failed:', e));
+}
+</script>
+</body>
+</html>
