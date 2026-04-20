@@ -1063,32 +1063,34 @@ function toggleVoice(btn) {
     }
 }
 
+let ttsSafetyTimer = null;
+
+function resetTTS() {
+    ttsPlaying = false;
+    clearTimeout(ttsSafetyTimer);
+    setAvatarIdle();
+    accumulatedTranscript = '';
+    internalTranscript = '';
+}
+
 async function speakText(text) {
     if (!voiceEnabled) return;
 
-    // Stop mic before playing audio
-    ttsPlaying = true;
+    // Stop mic
     const micWasOn = micOn;
     if (micOn || isListening) {
-        micOn = false;
-        if (isNativeApp && SpeechPlugin) {
-            try { await SpeechPlugin.stop(); await SpeechPlugin.removeAllListeners(); } catch(e) {}
-        } else if (recognition) {
-            try { recognition.abort(); } catch(e) {}
-        }
-        isListening = false;
+        fullStopRecognition();
     }
 
-    function restartMic() {
-        if (micWasOn) {
-            setTimeout(() => {
-                micOn = true;
-                startRecognition();
-                document.getElementById('micBtn').style.background = '#e74c3c';
-                document.getElementById('micBtn').style.color = 'white';
-            }, 500);
+    // Safety: ALWAYS reset ttsPlaying after max 30 seconds no matter what
+    ttsPlaying = true;
+    clearTimeout(ttsSafetyTimer);
+    ttsSafetyTimer = setTimeout(() => {
+        if (ttsPlaying) {
+            resetTTS();
+            if (micWasOn) toggleMic();
         }
-    }
+    }, 30000);
 
     try {
         const r = await fetch(`${API_BASE}/api/tts`, {
@@ -1099,57 +1101,50 @@ async function speakText(text) {
             },
             body: JSON.stringify({ text: text.substring(0, 2500), lang }),
         });
-        if (r.ok) {
-            const blob = await r.blob();
-            const audioUrl = URL.createObjectURL(blob);
-            const audio = new Audio(audioUrl);
-            setAvatarSpeaking();
-            audio.onended = () => {
-                setAvatarIdle();
-                ttsPlaying = false;
-                accumulatedTranscript = '';
-                internalTranscript = '';
-                URL.revokeObjectURL(audioUrl);
-                restartMic();
-            };
-            audio.onerror = (e) => {
-                console.error('Audio play error:', e);
-                setAvatarIdle();
-                ttsPlaying = false;
-                restartMic();
-                // Fallback: use browser speech synthesis
-                if ('speechSynthesis' in window) {
-                    const u = new SpeechSynthesisUtterance(text.substring(0, 500));
-                    u.lang = lang === 'sl' ? 'sl-SI' : 'en-US';
-                    u.onend = () => restartMic();
-                    speechSynthesis.speak(u);
-                }
-            };
-            audio.play().catch(e => {
-                console.error('Audio play failed:', e);
-                setAvatarIdle();
-                ttsPlaying = false;
-                restartMic();
-            });
-        } else {
-            console.error('TTS API error:', r.status);
-            setAvatarIdle();
-            ttsPlaying = false;
-            // Fallback: browser speech synthesis
-            if ('speechSynthesis' in window) {
-                const u = new SpeechSynthesisUtterance(text.substring(0, 500));
-                u.lang = lang === 'sl' ? 'sl-SI' : 'en-US';
-                u.onend = () => { ttsPlaying = false; restartMic(); };
-                speechSynthesis.speak(u);
-            } else {
-                restartMic();
-            }
-        }
+
+        if (!r.ok) throw new Error('TTS API error ' + r.status);
+
+        const blob = await r.blob();
+        if (blob.size < 100) throw new Error('Empty audio response');
+
+        const audioUrl = URL.createObjectURL(blob);
+        const audio = new Audio(audioUrl);
+
+        setAvatarSpeaking();
+
+        audio.onended = () => {
+            resetTTS();
+            URL.revokeObjectURL(audioUrl);
+            if (micWasOn) setTimeout(() => toggleMic(), 500);
+        };
+
+        audio.onerror = () => {
+            resetTTS();
+            URL.revokeObjectURL(audioUrl);
+            if (micWasOn) setTimeout(() => toggleMic(), 500);
+        };
+
+        await audio.play();
+
     } catch (e) {
-        console.error('Voice error:', e);
-        setAvatarIdle();
-        ttsPlaying = false;
-        if (micWasOn) { micOn = true; startRecognition(); }
+        resetTTS();
+        // Fallback: browser built-in speech
+        if ('speechSynthesis' in window) {
+            const u = new SpeechSynthesisUtterance(text.substring(0, 500));
+            u.lang = lang === 'sl' ? 'sl-SI' : 'en-US';
+            setAvatarSpeaking();
+            u.onend = () => {
+                resetTTS();
+                if (micWasOn) setTimeout(() => toggleMic(), 500);
+            };
+            u.onerror = () => {
+                resetTTS();
+                if (micWasOn) setTimeout(() => toggleMic(), 500);
+            };
+            speechSynthesis.speak(u);
+        } else {
+            if (micWasOn) setTimeout(() => toggleMic(), 500);
+        }
     }
 }
 
@@ -1187,9 +1182,9 @@ async function toggleMic() {
     const btn = document.getElementById('micBtn');
     detectCapacitor(); // ensure we detect native platform
 
+    // If ttsPlaying got stuck, force reset it
     if (ttsPlaying) {
-        addMessage('system', 'Wait for the response to finish speaking.');
-        return;
+        resetTTS();
     }
 
     micOn = !micOn;
