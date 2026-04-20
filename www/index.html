@@ -49,7 +49,7 @@ body {
     padding: 14px 24px; background: #111; border-bottom: 1px solid #222;
 }
 .avatar {
-    width: 48px; height: 48px; border-radius: 50%;
+    width: 56px; height: 56px; border-radius: 50%;
     object-fit: cover; border: 2px solid var(--accent);
 }
 .header-text h1 { font-size: 17px; color: var(--accent); }
@@ -329,12 +329,8 @@ textarea::placeholder { color: #555; }
     <button class="btn-dev" onclick="startInterview()">New Interview</button>
 </div>
 
-<!-- LIVE TOOLBAR -->
-<div class="dev-toolbar" id="liveToolbar" style="background:#000810;border-color:#002244">
-    <div class="stats" id="liveStats" style="color:#0088cc">Knowledge base: not loaded</div>
-    <button class="btn-dev" style="background:#002244;color:#00d4ff" onclick="document.getElementById('kbFile').click()">Load Knowledge Base</button>
-    <input type="file" id="kbFile" accept=".md,.txt" style="display:none" onchange="loadKnowledgeBase(event)">
-</div>
+<!-- LIVE TOOLBAR (hidden — KB load moved to settings) -->
+<div class="dev-toolbar" id="liveToolbar" style="display:none"></div>
 
 <!-- CONFIG PANEL -->
 <div class="config-panel" id="configPanel">
@@ -349,8 +345,11 @@ textarea::placeholder { color: #555; }
         <button onclick="testApiKey()" style="background:#332200;color:#ff9500">Test API Key</button>
     </div>
     <hr style="border:none;border-top:1px solid #333;margin:16px 0 12px">
+    <label style="font-weight:600;color:#aaa">Knowledge Status</label>
+    <div id="settingsStats" style="font-size:12px;color:#888;margin:6px 0 12px">Loading...</div>
     <label style="font-weight:600;color:#aaa">Data Management</label>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+        <button onclick="document.getElementById('kbFile').click()" style="background:#002244;color:#00d4ff">Load Knowledge Base</button>
         <button onclick="exportKnowledgeBase()" style="background:#332200;color:#ff9500">Export Knowledge Base</button>
         <button onclick="exportQA()" style="background:#332200;color:#ff9500">Export JSON</button>
         <button onclick="document.getElementById('importFile').click()" style="background:#332200;color:#ff9500">Import JSON</button>
@@ -358,6 +357,7 @@ textarea::placeholder { color: #555; }
         <button onclick="clearQA()" style="background:#331111;color:#ff4444">Clear All Q&A</button>
     </div>
     <input type="file" id="importFile" accept=".json" style="display:none" onchange="importQA(event)">
+    <input type="file" id="kbFile" accept=".md,.txt" style="display:none" onchange="loadKnowledgeBase(event)">
 </div>
 
 <!-- TALKING AVATAR (Live mode) -->
@@ -501,18 +501,13 @@ function switchMode(newMode) {
         ? (lang === 'sl' ? 'Vaš odgovor...' : 'Your answer...')
         : (lang === 'sl' ? 'Vprašajte Gorazda karkoli...' : 'Ask Gorazd anything...');
 
-    // Welcome message
+    // Welcome message — single disclaimer, no stats clutter
     if (mode === 'develop') {
-        addMessage('system', `Development Mode — ${qaBank.length} Q&A pairs stored.\nClick "New Interview" to start, or just type to answer the last question.`);
+        addMessage('system', 'Development Mode. Tap "New Interview" to start.');
     } else {
-        const qaPairCount = qaBank.length;
-        const kbLoaded = knowledgeBaseText ? 'Knowledge base loaded.' : '';
         addMessage('system',
-            `Welcome. You're speaking with a digital twin of Gorazd Lampic.\n` +
-            `${kbLoaded} ${qaPairCount} Q&A pairs available.\n` +
-            `Ask about in-wheel motors, syntropy, EU funding, strategy, or anything else.\n` +
-            `This is an AI representation, not the real Gorazd.`);
-        updateLiveStats();
+            `Ask me about in-wheel motors, syntropy, EU funding, strategy, or anything else.\n` +
+            `AI-powered digital twin — learning continuously.`);
     }
 
     updateStats();
@@ -735,6 +730,12 @@ async function callAPI(systemPrompt, messages, msgClass) {
 
         addMessage(msgClass, reply);
 
+        // Continuous learning — save Live conversations as training data
+        if (mode === 'live') {
+            const lastUserMsg = messages[messages.length - 1]?.content || '';
+            autoLearnFromConversation(lastUserMsg, reply);
+        }
+
         // Voice — play in both modes, avatar syncs in live mode
         if (voiceEnabled && elApiKey) {
             speakText(reply); // avatar goes idle when audio ends
@@ -881,12 +882,52 @@ function updateStats() {
     const total = qaBank.length;
     document.getElementById('qaCountBadge').textContent = total;
 
-    if (total === 0) {
-        document.getElementById('devStats').textContent = 'No Q&A pairs yet. Start an interview to train the twin.';
-    } else {
-        const parts = Object.entries(cats).sort((a,b) => b[1] - a[1]).map(([k,v]) => `${k}: ${v}`);
-        document.getElementById('devStats').textContent = `${total} Q&A pairs | ${parts.join(' | ')}`;
+    // Calculate knowledge base size
+    const qaSize = JSON.stringify(qaBank).length;
+    const kbSize = knowledgeBaseText ? knowledgeBaseText.length : 0;
+    const totalKB = ((qaSize + kbSize) / 1024).toFixed(1);
+
+    // Dev toolbar — minimal
+    const devStats = document.getElementById('devStats');
+    if (devStats) {
+        devStats.textContent = total === 0
+            ? 'Tap "New Interview" to start training.'
+            : `${totalKB} KB of knowledge`;
     }
+
+    // Settings panel — detailed
+    const settingsStats = document.getElementById('settingsStats');
+    if (settingsStats) {
+        const parts = Object.entries(cats).sort((a,b) => b[1] - a[1]).map(([k,v]) => `${k}: ${v}`);
+        settingsStats.textContent = `${totalKB} KB total | ${total} Q&A pairs | ${parts.join(', ')}` +
+            (kbSize > 0 ? ` | KB file: ${(kbSize/1024).toFixed(1)} KB` : '');
+    }
+}
+
+// ─── CONTINUOUS LEARNING ───
+// Auto-save every Live mode conversation as potential training data
+function autoLearnFromConversation(userQuestion, twinResponse) {
+    if (!userQuestion || !twinResponse) return;
+    // Skip very short exchanges (greetings, "ok", etc.)
+    if (userQuestion.length < 15 || twinResponse.length < 30) return;
+
+    const learned = {
+        id: Date.now(),
+        question: userQuestion,
+        answer: twinResponse,
+        category: guessCategory(userQuestion),
+        timestamp: new Date().toISOString(),
+        lang: lang,
+        source: 'live_conversation',
+        verified: false // needs admin review before becoming primary knowledge
+    };
+
+    // Store in a separate learning bank
+    let learnBank = JSON.parse(localStorage.getItem('dt_learn_bank') || '[]');
+    learnBank.push(learned);
+    // Keep last 200 learned items
+    if (learnBank.length > 200) learnBank = learnBank.slice(-200);
+    localStorage.setItem('dt_learn_bank', JSON.stringify(learnBank));
 }
 
 function exportQA() {
