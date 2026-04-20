@@ -838,6 +838,12 @@ function showLoginScreen() {
 }
 
 function onLoginSuccess() {
+    // Clear any previous session data
+    conversationHistory = [];
+    lastInterviewerQuestion = '';
+    interviewActive = false;
+    document.getElementById('chat').innerHTML = '';
+
     // Show UI — restore everything hidden by showLoginScreen
     document.querySelectorAll('.mode-bar, .header, .dev-toolbar, .avatar-container, .chat, .input-area, .typing-indicator').forEach(el => el.style.display = '');
 
