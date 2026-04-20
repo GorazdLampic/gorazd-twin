@@ -1102,8 +1102,7 @@ async function speakText(text) {
 
 // ═══════════════════════════════════════════
 //  SPEECH-TO-TEXT (both modes)
-//  Mobile-friendly: uses short recognition sessions with auto-restart
-//  Tap mic to toggle on/off. Stays on until you turn it off.
+//  Uses native Capacitor plugin when in app, Web Speech API in browser
 // ═══════════════════════════════════════════
 let recognition = null;
 let isListening = false;
@@ -1114,27 +1113,65 @@ let accumulatedTranscript = '';
 let internalTranscript = '';
 let restartTimer = null;
 
+// Detect if running inside Capacitor native app
+const isNativeApp = typeof Capacitor !== 'undefined' && Capacitor.isNativePlatform && Capacitor.isNativePlatform();
+let SpeechPlugin = null;
+if (isNativeApp && Capacitor.Plugins && Capacitor.Plugins.SpeechRecognition) {
+    SpeechPlugin = Capacitor.Plugins.SpeechRecognition;
+}
+
 async function toggleMic() {
     const btn = document.getElementById('micBtn');
-
-    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-        addMessage('system', 'Speech recognition not supported. Use Chrome.');
-        return;
-    }
 
     if (ttsPlaying) {
         addMessage('system', 'Wait for the response to finish speaking.');
         return;
     }
 
-    // If turning ON, first explicitly request mic permission (triggers native dialog on mobile)
+    // Native app: use Capacitor plugin
+    if (isNativeApp && SpeechPlugin) {
+        if (!micOn) {
+            // Request permission first time
+            try {
+                const perm = await SpeechPlugin.requestPermissions();
+                if (perm.speechRecognition !== 'granted') {
+                    addMessage('system', 'Microphone permission denied. Please allow in app settings.');
+                    return;
+                }
+            } catch (e) {
+                addMessage('system', 'Could not request mic permission: ' + e.message);
+                return;
+            }
+        }
+        micOn = !micOn;
+        if (micOn) {
+            accumulatedTranscript = '';
+            internalTranscript = '';
+            startNativeRecognition();
+            btn.style.background = '#e74c3c';
+            btn.style.color = 'white';
+            document.getElementById('input').placeholder = 'Listening...';
+        } else {
+            stopNativeRecognition();
+            btn.style.background = '#333';
+            btn.style.color = '#e0e0e0';
+            document.getElementById('input').placeholder = mode === 'develop' ? 'Your answer...' : 'Ask Gorazd anything...';
+        }
+        return;
+    }
+
+    // Browser fallback: Web Speech API
+    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+        addMessage('system', 'Speech recognition not available. Use Chrome browser or install the native app.');
+        return;
+    }
+
     if (!micOn) {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            // Permission granted — save stream for audio recording
             audioStream = stream;
         } catch (err) {
-            addMessage('system', 'Microphone access denied. Please tap "Allow" when the browser asks for permission, then try again.');
+            addMessage('system', 'Microphone access denied.');
             return;
         }
     }
@@ -1144,7 +1181,7 @@ async function toggleMic() {
     if (micOn) {
         accumulatedTranscript = '';
         internalTranscript = '';
-        startRecognition();
+        startWebRecognition();
         startAudioRecording();
         btn.style.background = '#e74c3c';
         btn.style.color = 'white';
@@ -1157,8 +1194,66 @@ async function toggleMic() {
     }
 }
 
-function startRecognition() {
-    if (ttsPlaying) return; // never start during TTS
+// ─── Native Capacitor speech recognition ───
+async function startNativeRecognition() {
+    if (ttsPlaying || !SpeechPlugin) return;
+
+    try {
+        // Remove old listeners
+        await SpeechPlugin.removeAllListeners();
+
+        // Listen for partial results
+        SpeechPlugin.addListener('partialResults', (data) => {
+            if (ttsPlaying) return;
+            const text = data.matches && data.matches[0] ? data.matches[0] : '';
+            if (text) {
+                document.getElementById('micBtn').style.background = '#e74c3c';
+                document.getElementById('input').placeholder = text.substring(text.length - 60);
+                internalTranscript = (accumulatedTranscript + ' ' + text).trim();
+            }
+        });
+
+        // Listen for end/stop
+        SpeechPlugin.addListener('listeningState', (state) => {
+            if (state.status === 'stopped' && micOn && !ttsPlaying) {
+                // Save what we got and restart
+                if (internalTranscript) {
+                    accumulatedTranscript = internalTranscript;
+                }
+                // Auto-restart for continuous listening
+                setTimeout(() => {
+                    if (micOn && !ttsPlaying) startNativeRecognition();
+                }, 300);
+            }
+        });
+
+        await SpeechPlugin.start({
+            language: lang === 'sl' ? 'sl-SI' : 'en-US',
+            popup: false,
+            partialResults: true
+        });
+
+        isListening = true;
+    } catch (e) {
+        addMessage('system', 'Speech recognition error: ' + e.message);
+        isListening = false;
+    }
+}
+
+async function stopNativeRecognition() {
+    micOn = false;
+    isListening = false;
+    if (SpeechPlugin) {
+        try {
+            await SpeechPlugin.stop();
+            await SpeechPlugin.removeAllListeners();
+        } catch (e) {}
+    }
+}
+
+// ─── Web Speech API (browser fallback) ───
+function startWebRecognition() {
+    if (ttsPlaying) return;
     if (recognition) { try { recognition.abort(); } catch(e) {} }
     clearTimeout(restartTimer);
 
@@ -1166,49 +1261,38 @@ function startRecognition() {
     recognition = new SR();
     recognition.lang = lang === 'sl' ? 'sl-SI' : 'en-US';
     recognition.interimResults = true;
-    // Mobile works better with short sessions that auto-restart
     recognition.continuous = !(/Android|iPhone|iPad/i.test(navigator.userAgent));
 
-    recognition.onstart = () => {
-        isListening = true;
-    };
+    recognition.onstart = () => { isListening = true; };
 
     recognition.onresult = (e) => {
         if (ttsPlaying) return;
-
         clearTimeout(silenceTimer);
         document.getElementById('micBtn').style.background = '#e74c3c';
 
         let finalText = '';
         let interimText = '';
         for (let i = 0; i < e.results.length; i++) {
-            if (e.results[i].isFinal) {
-                finalText += e.results[i][0].transcript;
-            } else {
-                interimText += e.results[i][0].transcript;
-            }
+            if (e.results[i].isFinal) finalText += e.results[i][0].transcript;
+            else interimText += e.results[i][0].transcript;
         }
 
-        // Show what we're hearing in the placeholder (feedback to user)
         const preview = (finalText + interimText).trim();
         if (preview) {
             document.getElementById('input').placeholder = preview.substring(preview.length - 60);
         }
 
-        // Store internally
         if (finalText) {
             accumulatedTranscript = (accumulatedTranscript + ' ' + finalText).trim();
             internalTranscript = accumulatedTranscript;
         }
 
-        // Silence timer — visual hint only
         if (e.results[e.results.length - 1].isFinal) {
             silenceTimer = setTimeout(() => {
                 if (micOn && !ttsPlaying) {
                     document.getElementById('micBtn').style.background = '#994422';
                     document.getElementById('input').placeholder = internalTranscript
-                        ? 'Tap send when ready. Still listening...'
-                        : 'Listening...';
+                        ? 'Tap send when ready...' : 'Listening...';
                 }
             }, SILENCE_TIMEOUT);
         }
@@ -1216,10 +1300,9 @@ function startRecognition() {
 
     recognition.onend = () => {
         isListening = false;
-        // Auto-restart if mic is on and TTS is not playing
         if (micOn && !ttsPlaying) {
             restartTimer = setTimeout(() => {
-                if (micOn && !ttsPlaying) startRecognition();
+                if (micOn && !ttsPlaying) startWebRecognition();
             }, 300);
         }
     };
@@ -1227,31 +1310,28 @@ function startRecognition() {
     recognition.onerror = (e) => {
         if (e.error === 'no-speech' || e.error === 'aborted') return;
         isListening = false;
-        if (e.error === 'not-allowed') {
-            addMessage('system', 'Microphone permission denied. Please allow mic access in browser settings.');
-            micOn = false;
-            document.getElementById('micBtn').style.background = '#333';
-            document.getElementById('micBtn').style.color = '#e0e0e0';
-            return;
-        }
-        // Transient error — retry
         if (micOn && !ttsPlaying) {
-            restartTimer = setTimeout(() => { if (micOn) startRecognition(); }, 1000);
+            restartTimer = setTimeout(() => { if (micOn) startWebRecognition(); }, 1000);
         }
     };
 
-    try {
-        recognition.start();
-    } catch (e) {
-        // Already started — ignore
-    }
+    try { recognition.start(); } catch (e) {}
+}
+
+function startRecognition() {
+    if (isNativeApp && SpeechPlugin) startNativeRecognition();
+    else startWebRecognition();
 }
 
 function fullStopRecognition() {
     micOn = false;
     clearTimeout(restartTimer);
     clearTimeout(silenceTimer);
-    if (recognition) { try { recognition.abort(); } catch(e) {} }
+    if (isNativeApp && SpeechPlugin) {
+        stopNativeRecognition();
+    } else {
+        if (recognition) { try { recognition.abort(); } catch(e) {} }
+    }
     isListening = false;
     stopAudioRecording();
 }
