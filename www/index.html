@@ -380,8 +380,8 @@ textarea::placeholder { color: #555; }
 <!-- INPUT -->
 <div class="input-area">
     <div class="input-row">
-        <button class="send-btn" id="micBtn" onclick="toggleMic()" style="background:#333;color:#e0e0e0;font-size:18px" title="Toggle microphone on/off">&#127908;</button>
-        <textarea id="input" placeholder="Answer the question..." rows="1"
+        <button class="send-btn" id="micBtn" onclick="toggleMic()" style="background:#333;color:#e0e0e0;font-size:18px" title="Microphone">&#127908;</button>
+        <textarea id="input" placeholder="Type or speak..." rows="1"
                   onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send()}"
                   oninput="autoResize(this)"></textarea>
         <button class="send-btn" id="sendBtn" onclick="send()">&#8593;</button>
@@ -392,6 +392,7 @@ textarea::placeholder { color: #555; }
             <button class="lang-btn" onclick="setLang(this, 'sl')">SL</button>
         </div>
         <button class="lang-btn active" id="voiceToggle" onclick="toggleVoice(this)">&#128266; Voice ON</button>
+        <button class="lang-btn" id="nextBtn" onclick="nextQuestion()" style="background:#00d4ff;color:#0a0a0a;display:none">Next question</button>
     </div>
 </div>
 
@@ -502,12 +503,13 @@ function switchMode(newMode) {
         ? (lang === 'sl' ? 'Vaš odgovor...' : 'Your answer...')
         : (lang === 'sl' ? 'Vprašajte Gorazda karkoli...' : 'Ask Gorazd anything...');
 
-    // Welcome message — single disclaimer, no stats clutter
+    // Welcome message
+    document.getElementById('nextBtn').style.display = 'none';
     if (mode === 'develop') {
-        addMessage('system', 'Development Mode. Tap "New Interview" to start.');
+        addMessage('system', 'Tap "New Interview" to start.');
     } else {
         addMessage('system',
-            `Ask me about in-wheel motors, syntropy, EU funding, strategy, or anything else.\n` +
+            `Ask me anything. Tap the mic or type your question.\n` +
             `AI-powered digital twin — learning continuously.`);
     }
 
@@ -517,20 +519,23 @@ function switchMode(newMode) {
 // ═══════════════════════════════════════════
 //  DEVELOP MODE — INTERVIEW
 // ═══════════════════════════════════════════
+// ─── DEVELOP MODE: One question at a time ───
+// Flow: [New Interview] → question appears → user answers → [Send] → saved → done
+// User clicks [New Interview] again for next question
 async function startInterview() {
     if (!authToken) { showLoginScreen(); return; }
 
-    // Full reset
     conversationHistory = [];
-    interviewActive = true;
     lastInterviewerQuestion = '';
     document.getElementById('chat').innerHTML = '';
+    document.getElementById('input').value = '';
+    document.getElementById('nextBtn').style.display = 'none';
 
-    // Start with user message in history so backend has proper conversation
-    const startMsg = { role: 'user', content: 'Ask me a question.' };
+    const startMsg = { role: 'user', content: 'Ask me one question.' };
     conversationHistory.push(startMsg);
 
     await callAPI(null, conversationHistory, 'interviewer');
+    // After question arrives, mic is ready for answer
 }
 
 async function sendDevelop() {
@@ -538,16 +543,10 @@ async function sendDevelop() {
     const text = input.value.trim();
     if (!text || !authToken) return;
 
-    stopAudioRecording();
-    saveCurrentRecording();
-
     input.value = '';
     input.style.height = 'auto';
-    accumulatedTranscript = '';
-    internalTranscript = '';
-    addMessage('user', text);
 
-    if (micOn) startAudioRecording();
+    addMessage('user', text);
 
     // Save Q&A pair
     if (lastInterviewerQuestion) {
@@ -562,11 +561,13 @@ async function sendDevelop() {
         qaBank.push(qa);
         localStorage.setItem('dt_qa_bank', JSON.stringify(qaBank));
         updateStats();
+        lastInterviewerQuestion = '';
     }
 
-    // Add user answer to history and ask next question
-    conversationHistory.push({ role: 'user', content: text });
-    await callAPI(null, conversationHistory, 'interviewer');
+    // Done — show confirmation, user clicks New Interview for next
+    addMessage('system', `Saved. Click "New Interview" for the next question.`);
+    // Stop mic after answer
+    if (micOn) toggleMic();
 }
 
 function guessCategory(question) {
@@ -587,47 +588,38 @@ function guessCategory(question) {
 // Knowledge base loaded from file (set via loadKnowledgeBase)
 let knowledgeBaseText = localStorage.getItem('dt_knowledge_base') || '';
 
+// ─── LIVE MODE: Question → answer → "Next question" button ───
 async function sendLive() {
     const input = document.getElementById('input');
     const text = input.value.trim();
     if (!text || !authToken) return;
 
-    // Save voice recording
-    stopAudioRecording();
-    saveCurrentRecording();
+    // Stop mic while processing
+    if (micOn) toggleMic();
 
     input.value = '';
     input.style.height = 'auto';
-    accumulatedTranscript = '';
-    internalTranscript = '';
     addMessage('user', text);
 
-    if (micOn) startAudioRecording();
+    // Hide next button during processing
+    document.getElementById('nextBtn').style.display = 'none';
 
     conversationHistory.push({ role: 'user', content: text });
 
-    // Build enriched system prompt
-    let enrichedPrompt = TWIN_BASE_PROMPT;
+    // Backend handles knowledge base injection
+    await callAPI(null, conversationHistory, 'assistant');
 
-    // Inject knowledge base file content if loaded
-    if (knowledgeBaseText) {
-        enrichedPrompt += '\n\n## GORAZD\'S AUTHENTIC KNOWLEDGE BASE\nThe following are Gorazd\'s real answers from interviews. Use them as ground truth for tone, content, and style. When a question matches one of these topics, draw heavily from his actual words:\n\n' + knowledgeBaseText;
-    }
+    // After response, show "Next question" button
+    document.getElementById('nextBtn').style.display = '';
+}
 
-    // Also inject most relevant Q&A pairs from localStorage
-    if (qaBank.length > 0) {
-        const relevant = findRelevantQAs(text, 10);
-        if (relevant.length > 0) {
-            enrichedPrompt += '\n\n## MOST RELEVANT Q&A FOR THIS QUESTION:\n\n';
-            relevant.forEach(qa => {
-                enrichedPrompt += `Q: ${qa.question}\nGorazd: ${qa.answer}\n\n`;
-            });
-        }
-    }
-
-    enrichedPrompt += '\n\nMatch the tone, specificity, and style of Gorazd\'s real answers above. Use his actual examples and phrasings when relevant. Be concise — 2-4 sentences for simple questions, more for complex ones.';
-
-    await callAPI(enrichedPrompt, conversationHistory, 'assistant');
+// Called when user taps "Next question" in Live mode
+function nextQuestion() {
+    document.getElementById('input').value = '';
+    document.getElementById('input').focus();
+    document.getElementById('nextBtn').style.display = 'none';
+    // Start mic for next question
+    if (!micOn) toggleMic();
 }
 
 function findRelevantQAs(query, maxResults) {
