@@ -520,36 +520,24 @@ function switchMode(newMode) {
 async function startInterview() {
     if (!authToken) { showLoginScreen(); return; }
 
+    // Full reset
     conversationHistory = [];
     interviewActive = true;
+    lastInterviewerQuestion = '';
     document.getElementById('chat').innerHTML = '';
-    addMessage('system', 'Starting interview session...');
 
-    const category = document.getElementById('categorySelect').value;
-    const categoryText = category === 'auto'
-        ? 'Pick the most interesting topic based on what you think needs more depth. Check the existing Q&A count by category to find gaps.'
-        : `Focus on: ${category}`;
+    // Start with user message in history so backend has proper conversation
+    const startMsg = { role: 'user', content: 'Ask me a question.' };
+    conversationHistory.push(startMsg);
 
-    const systemPrompt = INTERVIEWER_PROMPT.replace('{CATEGORY}', categoryText);
-
-    // Include existing QA summary so interviewer knows what's covered
-    let existingSummary = '';
-    if (qaBank.length > 0) {
-        const cats = {};
-        qaBank.forEach(qa => { cats[qa.category] = (cats[qa.category] || 0) + 1; });
-        existingSummary = `\n\nEXISTING Q&A COVERAGE (${qaBank.length} total): ${Object.entries(cats).map(([k,v]) => `${k}: ${v}`).join(', ')}.\nRecent questions asked: ${qaBank.slice(-5).map(q => q.question.substring(0, 60)).join(' | ')}\nAvoid repeating these. Go deeper or find gaps.`;
-    }
-
-    await callAPI(systemPrompt + existingSummary, [{ role: 'user', content: 'Start the interview. Ask me your first question.' }], 'interviewer');
+    await callAPI(null, conversationHistory, 'interviewer');
 }
 
 async function sendDevelop() {
     const input = document.getElementById('input');
-    // Use typed text if available, otherwise use voice transcript
     const text = input.value.trim() || internalTranscript.trim();
     if (!text || !authToken) return;
 
-    // Save voice recording before clearing
     stopAudioRecording();
     saveCurrentRecording();
 
@@ -559,10 +547,9 @@ async function sendDevelop() {
     internalTranscript = '';
     addMessage('user', text);
 
-    // Restart audio recording for next answer
     if (micOn) startAudioRecording();
 
-    // Store Q&A pair (the 3 questions + the answer as one entry)
+    // Save Q&A pair
     if (lastInterviewerQuestion) {
         const qa = {
             id: Date.now(),
@@ -577,22 +564,9 @@ async function sendDevelop() {
         updateStats();
     }
 
-    // Continue the conversation — ask next question
+    // Add user answer to history and ask next question
     conversationHistory.push({ role: 'user', content: text });
-
-    const category = document.getElementById('categorySelect').value;
-    const categoryText = category === 'auto' ? 'Pick based on gaps' : `Focus on: ${category}`;
-    const systemPrompt = INTERVIEWER_PROMPT.replace('{CATEGORY}', categoryText);
-
-    let existingSummary = '';
-    if (qaBank.length > 0) {
-        const cats = {};
-        qaBank.forEach(qa => { cats[qa.category] = (cats[qa.category] || 0) + 1; });
-        existingSummary = `\n\nQ&A COVERAGE (${qaBank.length} total): ${Object.entries(cats).map(([k,v]) => `${k}: ${v}`).join(', ')}.`;
-    }
-
-    addMessage('system', `Saved (${qaBank.length} total).`);
-    await callAPI(systemPrompt + existingSummary, conversationHistory, 'interviewer');
+    await callAPI(null, conversationHistory, 'interviewer');
 }
 
 function guessCategory(question) {
@@ -1086,24 +1060,31 @@ function toggleVoice(btn) {
 async function speakText(text) {
     if (!voiceEnabled) return;
 
-    // FULLY stop recognition before playing audio
+    // Stop mic before playing audio
     ttsPlaying = true;
     const micWasOn = micOn;
     if (micOn || isListening) {
         micOn = false;
         if (isNativeApp && SpeechPlugin) {
-            try { await SpeechPlugin.stop(); } catch(e) {}
+            try { await SpeechPlugin.stop(); await SpeechPlugin.removeAllListeners(); } catch(e) {}
         } else if (recognition) {
             try { recognition.abort(); } catch(e) {}
         }
         isListening = false;
     }
-    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-        try { mediaRecorder.stop(); } catch(e) {}
+
+    function restartMic() {
+        if (micWasOn) {
+            setTimeout(() => {
+                micOn = true;
+                startRecognition();
+                document.getElementById('micBtn').style.background = '#e74c3c';
+                document.getElementById('micBtn').style.color = 'white';
+            }, 500);
+        }
     }
 
     try {
-        // Use backend TTS proxy — no ElevenLabs key on client
         const r = await fetch(`${API_BASE}/api/tts`, {
             method: 'POST',
             headers: {
@@ -1114,34 +1095,49 @@ async function speakText(text) {
         });
         if (r.ok) {
             const blob = await r.blob();
-            const audio = new Audio(URL.createObjectURL(blob));
+            const audioUrl = URL.createObjectURL(blob);
+            const audio = new Audio(audioUrl);
             setAvatarSpeaking();
             audio.onended = () => {
                 setAvatarIdle();
                 ttsPlaying = false;
                 accumulatedTranscript = '';
                 internalTranscript = '';
-                // Restart mic after TTS finishes
-                if (micWasOn) {
-                    setTimeout(() => {
-                        micOn = true;
-                        startRecognition();
-                        startAudioRecording();
-                        document.getElementById('micBtn').style.background = '#e74c3c';
-                        document.getElementById('micBtn').style.color = 'white';
-                    }, 500);
-                }
+                URL.revokeObjectURL(audioUrl);
+                restartMic();
             };
-            audio.onerror = () => {
+            audio.onerror = (e) => {
+                console.error('Audio play error:', e);
                 setAvatarIdle();
                 ttsPlaying = false;
-                if (micWasOn) { micOn = true; startRecognition(); }
+                restartMic();
+                // Fallback: use browser speech synthesis
+                if ('speechSynthesis' in window) {
+                    const u = new SpeechSynthesisUtterance(text.substring(0, 500));
+                    u.lang = lang === 'sl' ? 'sl-SI' : 'en-US';
+                    u.onend = () => restartMic();
+                    speechSynthesis.speak(u);
+                }
             };
-            audio.play();
+            audio.play().catch(e => {
+                console.error('Audio play failed:', e);
+                setAvatarIdle();
+                ttsPlaying = false;
+                restartMic();
+            });
         } else {
+            console.error('TTS API error:', r.status);
             setAvatarIdle();
             ttsPlaying = false;
-            if (micWasOn) { micOn = true; startRecognition(); }
+            // Fallback: browser speech synthesis
+            if ('speechSynthesis' in window) {
+                const u = new SpeechSynthesisUtterance(text.substring(0, 500));
+                u.lang = lang === 'sl' ? 'sl-SI' : 'en-US';
+                u.onend = () => { ttsPlaying = false; restartMic(); };
+                speechSynthesis.speak(u);
+            } else {
+                restartMic();
+            }
         }
     } catch (e) {
         console.error('Voice error:', e);
@@ -1190,61 +1186,46 @@ async function toggleMic() {
         return;
     }
 
-    // Native app: use Capacitor plugin
-    if (isNativeApp && SpeechPlugin) {
-        if (!micOn) {
-            // Request permission first time
-            try {
-                const perm = await SpeechPlugin.requestPermissions();
-                if (perm.speechRecognition !== 'granted') {
-                    addMessage('system', 'Microphone permission denied. Please allow in app settings.');
-                    return;
-                }
-            } catch (e) {
-                addMessage('system', 'Could not request mic permission: ' + e.message);
-                return;
-            }
-        }
-        micOn = !micOn;
-        if (micOn) {
-            accumulatedTranscript = '';
-            internalTranscript = '';
-            startNativeRecognition();
-            btn.style.background = '#e74c3c';
-            btn.style.color = 'white';
-            document.getElementById('input').placeholder = 'Listening...';
-        } else {
-            stopNativeRecognition();
-            btn.style.background = '#333';
-            btn.style.color = '#e0e0e0';
-            document.getElementById('input').placeholder = mode === 'develop' ? 'Your answer...' : 'Ask Gorazd anything...';
-        }
-        return;
-    }
-
-    // Browser fallback: Web Speech API
-    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-        addMessage('system', 'Speech recognition not available. Use Chrome browser or install the native app.');
-        return;
-    }
-
-    if (!micOn) {
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            audioStream = stream;
-        } catch (err) {
-            addMessage('system', 'Microphone access denied.');
-            return;
-        }
-    }
-
     micOn = !micOn;
 
     if (micOn) {
         accumulatedTranscript = '';
         internalTranscript = '';
-        startWebRecognition();
-        startAudioRecording();
+
+        // Try native Capacitor plugin first, then Web Speech API, then getUserMedia
+        let started = false;
+
+        if (isNativeApp && SpeechPlugin) {
+            try {
+                const perm = await SpeechPlugin.requestPermissions();
+                if (perm.speechRecognition === 'granted') {
+                    startNativeRecognition();
+                    started = true;
+                }
+            } catch (e) {
+                console.log('Native speech failed, trying fallback:', e);
+            }
+        }
+
+        if (!started && ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                audioStream = stream;
+                startWebRecognition();
+                started = true;
+            } catch (e) {
+                console.log('Web Speech failed:', e);
+            }
+        }
+
+        if (!started) {
+            micOn = false;
+            addMessage('system', 'Voice input not available. Please type your message instead.');
+            btn.style.background = '#333';
+            btn.style.color = '#e0e0e0';
+            return;
+        }
+
         btn.style.background = '#e74c3c';
         btn.style.color = 'white';
         document.getElementById('input').placeholder = 'Listening...';
