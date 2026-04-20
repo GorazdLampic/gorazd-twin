@@ -864,8 +864,8 @@ function showLoginScreen() {
 }
 
 function onLoginSuccess() {
-    // Show UI
-    document.querySelectorAll('.mode-bar, .header, .chat, .input-area, .typing-indicator').forEach(el => el.style.display = '');
+    // Show UI — restore everything hidden by showLoginScreen
+    document.querySelectorAll('.mode-bar, .header, .dev-toolbar, .avatar-container, .chat, .input-area, .typing-indicator').forEach(el => el.style.display = '');
 
     // Kid mode: only Live, no settings gear, no Develop tab
     if (userRole === 'kid') {
