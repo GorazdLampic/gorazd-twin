@@ -1510,71 +1510,9 @@ function audioBufferToWav(buffer) {
     return new Blob([arrayBuffer], { type: 'audio/wav' });
 }
 
-async function syncVoiceToElevenLabs() {
-    if (voiceSamples.length === 0) {
-        addMessage('system', 'No voice samples recorded yet. Speak some answers first.');
-        return;
-    }
-    if (false) {
-        addMessage('system', 'ElevenLabs API key required. Set it in the gear menu.');
-        return;
-    }
-
-    const voiceId = lang === 'sl' ? VOICE_SL : VOICE_EN;
-    const samplesToUpload = voiceSamples.filter(s => s.lang === lang);
-    if (samplesToUpload.length === 0) {
-        addMessage('system', `No ${lang === 'sl' ? 'Slovenian' : 'English'} samples. Switch language or record more.`);
-        return;
-    }
-
-    addMessage('system', `Cleaning ${samplesToUpload.length} samples (removing silence, filler sounds)...`);
-
-    try {
-        // First get current voice name
-        const infoRes = await fetch(`https://api.elevenlabs.io/v1/voices/${voiceId}`, {
-            headers: { 'xi-api-key': elApiKey }
-        });
-        if (!infoRes.ok) throw new Error('Could not fetch voice info');
-        const voiceInfo = await infoRes.json();
-
-        // Clean each sample
-        const formData = new FormData();
-        formData.append('name', voiceInfo.name);
-
-        let cleanedCount = 0;
-        for (let i = 0; i < samplesToUpload.length; i++) {
-            const cleaned = await cleanAudioBlob(samplesToUpload[i].blob);
-            // Only include if cleaned audio is substantial (>1KB = ~0.5s of WAV)
-            if (cleaned.size > 1000) {
-                formData.append('files', cleaned, `gorazd_${lang}_${i}_${Date.now()}.wav`);
-                cleanedCount++;
-            }
-        }
-
-        if (cleanedCount === 0) {
-            addMessage('system', 'All samples were too short or noisy after cleaning. Record longer answers.');
-            return;
-        }
-
-        addMessage('system', `Uploading ${cleanedCount} cleaned samples to ElevenLabs...`);
-
-        const res = await fetch(`https://api.elevenlabs.io/v1/voices/${voiceId}/edit`, {
-            method: 'POST',
-            headers: { 'xi-api-key': elApiKey },
-            body: formData
-        });
-
-        if (res.ok) {
-            addMessage('system', `Voice updated with ${cleanedCount} clean samples. The ${lang === 'sl' ? 'Slovenian' : 'English'} voice will sound more like you now.`);
-            voiceSamples = voiceSamples.filter(s => s.lang !== lang);
-            updateVoiceSyncStats();
-        } else {
-            const err = await res.json();
-            throw new Error(err.detail?.message || JSON.stringify(err));
-        }
-    } catch (e) {
-        addMessage('system', `Voice sync error: ${e.message}`);
-    }
+// Voice sync is handled server-side by Claude Code
+function syncVoiceToElevenLabs() {
+    addMessage('system', 'Voice updates are managed automatically. Contact Gorazd to update.');
 }
 
 // ═══════════════════════════════════════════
