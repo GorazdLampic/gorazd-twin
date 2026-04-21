@@ -112,8 +112,8 @@ body {
     display: flex; flex-direction: column; gap: 16px;
 }
 .msg {
-    max-width: 80%; padding: 12px 16px; border-radius: 12px;
-    line-height: 1.6; font-size: 15px; white-space: pre-wrap;
+    max-width: 85%; padding: 14px 16px; border-radius: 12px;
+    line-height: 1.6; font-size: 17px; white-space: pre-wrap;
 }
 .msg.user {
     background: #1a2a4a; color: #c8d8f8; align-self: flex-end;
@@ -236,9 +236,9 @@ body {
 textarea {
     flex: 1; background: #1a1a2e; border: 1px solid #333;
     border-radius: 12px; padding: 10px 14px; color: #e0e0e0;
-    font-size: 16px; font-family: inherit; resize: none;
-    min-height: 44px; max-height: 120px; outline: none;
-    line-height: 1.4; width: 100%;
+    font-size: 18px; font-family: inherit; resize: none;
+    min-height: 48px; max-height: 120px; outline: none;
+    line-height: 1.5; width: 100%;
 }
 textarea:focus { border-color: var(--accent); }
 textarea::placeholder { color: #555; }
@@ -250,7 +250,12 @@ textarea::placeholder { color: #555; }
     flex-shrink: 0; transition: all 0.2s;
 }
 .send-btn:hover { opacity: 0.85; transform: scale(1.05); }
-.send-btn:disabled { background: #333; color: #666; cursor: not-allowed; transform: none; opacity: 1; }
+.send-btn:disabled { background: #333; color: #666; cursor: not-allowed; transform: none; opacity: 1; animation: none; }
+.send-btn.ready { animation: sendPulse 1.5s ease-in-out infinite; }
+@keyframes sendPulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(0, 212, 255, 0.4); }
+    50% { box-shadow: 0 0 12px 4px rgba(0, 212, 255, 0.3); }
+}
 
 .input-controls {
     display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
@@ -267,7 +272,7 @@ textarea::placeholder { color: #555; }
 .lang-btn.active { background: var(--accent); color: #0a0a0a; }
 
 @media (max-width: 600px) {
-    .msg { max-width: 92%; font-size: 14px; }
+    .msg { max-width: 92%; font-size: 16px; }
     .header { padding: 8px 12px; gap: 10px; }
     .header-text h1 { font-size: 15px; }
     .header-text p { font-size: 11px; }
@@ -374,11 +379,12 @@ textarea::placeholder { color: #555; }
         <textarea id="input" placeholder="Type or speak..." rows="1"
                   onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send()}"
                   oninput="autoResize(this)"></textarea>
-        <button class="send-btn" id="sendBtn" onclick="send()">&#8593;</button>
+        <button class="send-btn" id="sendBtn" onclick="send()" style="border-radius:12px;width:auto;padding:0 16px;font-size:15px;font-weight:700;letter-spacing:0.5px">Send</button>
     </div>
     <div class="input-controls">
         <button class="lang-btn active" id="voiceToggle" onclick="toggleVoice(this)">&#128266; Voice ON</button>
         <button class="lang-btn" id="nextBtn" onclick="nextQuestion()" style="background:#00d4ff;color:#0a0a0a;display:none">Next question</button>
+        <button class="lang-btn" id="logoutBtn" onclick="doLogout()" style="margin-left:auto;color:#888">Logout</button>
     </div>
 </div>
 
@@ -682,8 +688,7 @@ async function callAPI(systemPrompt, messages, msgClass) {
     typing.classList.add('visible');
     document.getElementById('sendBtn').disabled = true;
 
-    if (mode === 'live') setAvatarSpeaking();
-
+    // Don't animate lips during API wait — only during actual speech
     try {
         // Use backend proxy — no API keys on client
         const category = 'auto';
@@ -723,17 +728,13 @@ async function callAPI(systemPrompt, messages, msgClass) {
             autoLearnFromConversation(lastUserMsg, reply);
         }
 
-        // Voice — use backend TTS proxy
+        // Voice — use backend TTS proxy. Lips animate only during speakText.
         if (voiceEnabled) {
             speakText(reply);
-        } else if (mode === 'live') {
-            const readTime = Math.min(reply.length * 40, 8000);
-            setTimeout(() => setAvatarIdle(), readTime);
         }
 
     } catch (err) {
         addMessage('system', `Error: ${err.message}`);
-        if (mode === 'live') setAvatarIdle();
     } finally {
         typing.classList.remove('visible');
         document.getElementById('sendBtn').disabled = false;
@@ -789,6 +790,10 @@ function stopAvatar() {
 function autoResize(el) {
     el.style.height = 'auto';
     el.style.height = Math.min(el.scrollHeight, 150) + 'px';
+    // Pulse send button when there's text ready to send
+    const btn = document.getElementById('sendBtn');
+    if (el.value.trim()) { btn.classList.add('ready'); }
+    else { btn.classList.remove('ready'); }
 }
 
 // Language hardcoded to English
