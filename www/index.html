@@ -315,18 +315,8 @@ textarea::placeholder { color: #555; }
 
 <!-- DEV TOOLBAR -->
 <div class="dev-toolbar visible" id="devToolbar">
-    <div class="stats" id="devStats">No Q&A pairs yet. Start an interview to train the twin.</div>
-    <select class="category-select" id="categorySelect">
-        <option value="auto">Auto (AI picks)</option>
-        <option value="elaphe">Elaphe / Motors</option>
-        <option value="syntropy">Syntropy / QW</option>
-        <option value="fusion">Fusion / Cosylab</option>
-        <option value="eu">EU Funding</option>
-        <option value="strategy">Strategy / Business</option>
-        <option value="ai">AI / Technology</option>
-        <option value="personal">Personal / Philosophy</option>
-    </select>
-    <button class="btn-dev" onclick="startInterview()">New Interview</button>
+    <div class="stats" id="devStats">Loading gaps...</div>
+    <button class="btn-dev" onclick="loadGaps()">Show Knowledge Gaps</button>
 </div>
 
 <!-- LIVE TOOLBAR (hidden — KB load moved to settings) -->
@@ -387,10 +377,6 @@ textarea::placeholder { color: #555; }
         <button class="send-btn" id="sendBtn" onclick="send()">&#8593;</button>
     </div>
     <div class="input-controls">
-        <div class="lang-toggle">
-            <button class="lang-btn active" onclick="setLang(this, 'en')">EN</button>
-            <button class="lang-btn" onclick="setLang(this, 'sl')">SL</button>
-        </div>
         <button class="lang-btn active" id="voiceToggle" onclick="toggleVoice(this)">&#128266; Voice ON</button>
         <button class="lang-btn" id="nextBtn" onclick="nextQuestion()" style="background:#00d4ff;color:#0a0a0a;display:none">Next question</button>
     </div>
@@ -506,11 +492,14 @@ function switchMode(newMode) {
     // Welcome message
     document.getElementById('nextBtn').style.display = 'none';
     if (mode === 'develop') {
-        addMessage('system', 'Tap "New Interview" to start.');
+        const gapCount = JSON.parse(localStorage.getItem('dt_gap_bank') || '[]').length;
+        addMessage('system', gapCount > 0
+            ? `${gapCount} knowledge gap(s) to fill. Tap "Show Knowledge Gaps" to start.`
+            : 'No gaps yet. Use Live mode — gaps appear here when the twin doesn\'t know something.');
     } else {
         addMessage('system',
             `Ask me anything. Tap the mic or type your question.\n` +
-            `AI-powered digital twin — learning continuously.`);
+            `Learning continuously.`);
     }
 
     updateStats();
@@ -519,23 +508,44 @@ function switchMode(newMode) {
 // ═══════════════════════════════════════════
 //  DEVELOP MODE — INTERVIEW
 // ═══════════════════════════════════════════
-// ─── DEVELOP MODE: One question at a time ───
-// Flow: [New Interview] → question appears → user answers → [Send] → saved → done
-// User clicks [New Interview] again for next question
-async function startInterview() {
+// ─── DEVELOP MODE: Knowledge Gap Review ───
+// Shows questions where the twin didn't know the answer in Live mode.
+// Gorazd answers them, filling the real gaps.
+let currentGaps = [];
+let currentGapIndex = 0;
+
+async function loadGaps() {
     if (!authToken) { showLoginScreen(); return; }
 
-    conversationHistory = [];
-    lastInterviewerQuestion = '';
     document.getElementById('chat').innerHTML = '';
     document.getElementById('input').value = '';
-    document.getElementById('nextBtn').style.display = 'none';
 
-    const startMsg = { role: 'user', content: 'Ask me one question.' };
-    conversationHistory.push(startMsg);
+    // Load gaps from localStorage (stored by autoLearnFromConversation when twin admits not knowing)
+    const gapBank = JSON.parse(localStorage.getItem('dt_gap_bank') || '[]');
 
-    await callAPI(null, conversationHistory, 'interviewer');
-    // After question arrives, mic is ready for answer
+    if (gapBank.length === 0) {
+        addMessage('system', 'No knowledge gaps found yet. Use Live mode first — when the twin doesn\'t know something, it will appear here for you to answer.');
+        document.getElementById('devStats').textContent = 'No gaps to fill.';
+        return;
+    }
+
+    currentGaps = gapBank;
+    currentGapIndex = 0;
+    document.getElementById('devStats').textContent = `${gapBank.length} gap(s) to fill`;
+    showNextGap();
+}
+
+function showNextGap() {
+    if (currentGapIndex >= currentGaps.length) {
+        addMessage('system', 'All gaps filled! Your digital twin is now smarter.');
+        document.getElementById('devStats').textContent = 'All gaps filled.';
+        return;
+    }
+
+    const gap = currentGaps[currentGapIndex];
+    addMessage('interviewer', `Someone asked: "${gap.question}"\n\nThe twin didn't have a good answer. How would you respond?`);
+    document.getElementById('input').value = '';
+    document.getElementById('input').focus();
 }
 
 async function sendDevelop() {
@@ -545,30 +555,42 @@ async function sendDevelop() {
 
     input.value = '';
     input.style.height = 'auto';
-
     addMessage('user', text);
 
-    // Save Q&A pair
-    if (lastInterviewerQuestion) {
+    // Save the answer as a new Q&A pair
+    if (currentGapIndex < currentGaps.length) {
+        const gap = currentGaps[currentGapIndex];
         const qa = {
             id: Date.now(),
-            question: lastInterviewerQuestion,
+            question: gap.question,
             answer: text,
-            category: guessCategory(lastInterviewerQuestion),
+            category: guessCategory(gap.question),
             timestamp: new Date().toISOString(),
-            lang: lang
+            lang: 'en',
+            source: 'gap_fill'
         };
         qaBank.push(qa);
         localStorage.setItem('dt_qa_bank', JSON.stringify(qaBank));
-        updateStats();
-        lastInterviewerQuestion = '';
-    }
 
-    // Done — show confirmation, user clicks New Interview for next
-    addMessage('system', `Saved. Click "New Interview" for the next question.`);
-    // Stop mic after answer
-    if (micOn) toggleMic();
+        // Remove this gap
+        currentGapIndex++;
+        const gapBank = currentGaps.slice(currentGapIndex);
+        localStorage.setItem('dt_gap_bank', JSON.stringify(gapBank));
+
+        updateStats();
+        addMessage('system', `Saved. ${currentGaps.length - currentGapIndex} gap(s) remaining.`);
+
+        // Show next gap after brief pause
+        if (currentGapIndex < currentGaps.length) {
+            setTimeout(showNextGap, 1000);
+        } else {
+            addMessage('system', 'All gaps filled! Your digital twin just got better.');
+        }
+    }
 }
+
+// Also keep startInterview as alias for loadGaps
+function startInterview() { loadGaps(); }
 
 function guessCategory(question) {
     const q = question.toLowerCase();
@@ -664,7 +686,7 @@ async function callAPI(systemPrompt, messages, msgClass) {
 
     try {
         // Use backend proxy — no API keys on client
-        const category = document.getElementById('categorySelect')?.value || 'auto';
+        const category = 'auto';
         const response = await fetch(`${API_BASE}/api/chat`, {
             method: 'POST',
             headers: {
@@ -769,16 +791,8 @@ function autoResize(el) {
     el.style.height = Math.min(el.scrollHeight, 150) + 'px';
 }
 
-function setLang(btn, l) {
-    lang = l;
-    document.querySelectorAll('.lang-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    if (mode === 'develop') {
-        document.getElementById('input').placeholder = l === 'sl' ? 'Vaš odgovor...' : 'Your answer...';
-    } else {
-        document.getElementById('input').placeholder = l === 'sl' ? 'Vprašajte Gorazda karkoli...' : 'Ask Gorazd anything...';
-    }
-}
+// Language hardcoded to English
+function setLang() {}
 
 // ─── LOGIN / AUTH ───
 async function doLogin() {
@@ -892,24 +906,43 @@ function updateStats() {
 // Auto-save every Live mode conversation as potential training data
 function autoLearnFromConversation(userQuestion, twinResponse) {
     if (!userQuestion || !twinResponse) return;
-    // Skip very short exchanges (greetings, "ok", etc.)
     if (userQuestion.length < 15 || twinResponse.length < 30) return;
 
-    const learned = {
+    // Detect if the twin admitted not knowing — store as a gap for Gorazd to fill
+    const gapPhrases = [
+        "doesn't have that", "don't have that", "doesn't have this",
+        "will ask the real", "flag this", "currently don't have",
+        "don't have specific", "not sure about", "I'm not certain",
+        "my digital twin doesn't", "need to check"
+    ];
+    const isGap = gapPhrases.some(phrase => twinResponse.toLowerCase().includes(phrase));
+
+    if (isGap) {
+        let gapBank = JSON.parse(localStorage.getItem('dt_gap_bank') || '[]');
+        // Don't add duplicate gaps
+        if (!gapBank.some(g => g.question === userQuestion)) {
+            gapBank.push({
+                id: Date.now(),
+                question: userQuestion,
+                twinResponse: twinResponse,
+                timestamp: new Date().toISOString()
+            });
+            localStorage.setItem('dt_gap_bank', JSON.stringify(gapBank));
+        }
+    }
+
+    // Also store as learning data
+    let learnBank = JSON.parse(localStorage.getItem('dt_learn_bank') || '[]');
+    learnBank.push({
         id: Date.now(),
         question: userQuestion,
         answer: twinResponse,
         category: guessCategory(userQuestion),
         timestamp: new Date().toISOString(),
-        lang: lang,
+        lang: 'en',
         source: 'live_conversation',
-        verified: false // needs admin review before becoming primary knowledge
-    };
-
-    // Store in a separate learning bank
-    let learnBank = JSON.parse(localStorage.getItem('dt_learn_bank') || '[]');
-    learnBank.push(learned);
-    // Keep last 200 learned items
+        verified: false
+    });
     if (learnBank.length > 200) learnBank = learnBank.slice(-200);
     localStorage.setItem('dt_learn_bank', JSON.stringify(learnBank));
 }
