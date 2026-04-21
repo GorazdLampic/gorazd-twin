@@ -305,8 +305,8 @@ textarea::placeholder { color: #555; }
 
 <!-- HEADER -->
 <div class="header">
-    <img class="avatar" id="avatarImg" src="./GL2_cyan.jpg" alt="GL"
-         onerror="this.src='./GL2_pro.jpg'; this.onerror=function(){this.style.display='none'}">
+    <img class="avatar" id="avatarImg" src="./icons/icon-192.png" alt="GL"
+         onerror="this.src='./GL2_cyan.jpg'; this.onerror=function(){this.style.display='none'}">
     <div class="header-text">
         <h1 id="headerTitle">Gorazd Lampic</h1>
         <p id="headerSub">Digital Twin — Development Mode</p>
@@ -315,6 +315,7 @@ textarea::placeholder { color: #555; }
         <div class="status-dot" id="statusDot" style="background:#ff9500"></div>
         <span class="status-label" id="statusLabel">Training</span>
         <button class="config-toggle" onclick="toggleConfig()">&#9881;</button>
+        <button class="config-toggle" id="logoutHeaderBtn" onclick="doLogout()" style="font-size:13px;color:#888">&#x2190;</button>
     </div>
 </div>
 
@@ -384,7 +385,6 @@ textarea::placeholder { color: #555; }
     <div class="input-controls">
         <button class="lang-btn active" id="voiceToggle" onclick="toggleVoice(this)">&#128266; Voice ON</button>
         <button class="lang-btn" id="nextBtn" onclick="nextQuestion()" style="background:#00d4ff;color:#0a0a0a;display:none">Next question</button>
-        <button class="lang-btn" id="logoutBtn" onclick="doLogout()" style="margin-left:auto;color:#888">Logout</button>
     </div>
 </div>
 
